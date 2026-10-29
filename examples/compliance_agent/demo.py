@@ -8,8 +8,8 @@ Three documents, three stories:
    redacted from the escalation context (it never leaves the device).
 
 Then: a reuse hit on DOC_OK, a Merkle-anchored journal batch with an
-offline inclusion proof, and measured metrics. This script doubles as
-the shot list for the championship demo video.
+offline inclusion proof, and measured metrics. This script is the
+reference walkthrough: three documents end to end.
 """
 
 from examples.compliance_agent.agent import ComplianceAgent

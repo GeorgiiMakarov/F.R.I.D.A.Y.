@@ -1,8 +1,9 @@
-# Compliance demo agent (Business category)
+# Compliance pre-check: reference rule pack
 
-An agent that reviews regulated-company documents against deterministic
-rules, on-device, on F.R.I.D.A.Y. Built as the entry prototype for the
-Dubai Create AI Agents Championship, Best Business AI Agent category.
+A compliance pre-check engine for regulated-company documents,
+on-device, on F.R.I.D.A.Y.: the reference implementation of the
+product's first rule pack. Deterministic rules decide; a local model
+advises; nothing sensitive leaves the device.
 
 ## The problem it solves
 
@@ -32,7 +33,7 @@ offline inclusion proofs.
 Verdict is PASS only when every finding is pass or note. Anything
 flagged or undecidable is FLAGGED.
 
-## What the demo shows (and what it does not)
+## What the reference implementation shows (and what it does not)
 
 Shows: gated rules, reuse, escalation with redaction, hash-chained
 journal, Merkle anchoring with offline proof verification, and measured
@@ -71,14 +72,14 @@ python3 -m unittest tests.test_demo_agent -v
 python3 -m examples.compliance_agent.demo
 ```
 
-## How it maps to the championship criteria
+## What this proves for a buyer
 
 - Real problem: routine compliance checks for regulated companies.
 - Measurable impact: escalation rate, estimated tokens saved
   (chars/4, labelled as an estimate), journal completeness — all
   printed by the demo, not asserted.
-- Scalable business: the agent is one product on the F.R.I.D.A.Y.
-  engine; new document types are new rule batteries, not new systems.
+- Scalable product: this is one rule pack on the F.R.I.D.A.Y.
+  engine; new document types are new rule packs, not new systems.
 - Data locality: sensitive fragments are classified and redacted
   before escalation; the demo proves the email never appears in the
   escalation context.

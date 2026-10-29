@@ -17,9 +17,9 @@ Or with llama.cpp server:
     python3 -m examples.compliance_agent.run_with_model \
         --base-url http://localhost:8080/v1 --model local
 
-The output of this script IS the recorded run the championship
-application needs: model, device, tokens, latency, escalation share.
-Save it next to the pitch; do not hand-edit the numbers.
+The output of this script IS the recorded run: model, device, tokens,
+latency, escalation share. Save it as evidence; do not hand-edit the
+numbers.
 """
 
 import argparse

@@ -9,6 +9,11 @@ compute; the large model is consulted only on escalation — and every
 delegation step happens under verification. See `friday/README.md` for
 the full design, the eight skills, and the evidence this design owes.
 
+Product direction: F.R.I.D.A.Y. is a local-first compliance pre-check
+engine for regulated companies — the core of a compliance control
+plane. It is an engine, not an AI agent: verification first — rules
+decide, a local model advises, nothing sensitive leaves the device.
+
 ## Quick start
 
 ```bash
@@ -16,11 +21,12 @@ python3 -m unittest tests.test_friday -v
 python3 -m friday.demo
 ```
 
-## Demo agent (Dubai Create AI Agents Championship, Business)
+## Reference implementation: compliance pre-check
 
-`examples/compliance_agent/` — a compliance document-review agent on
-this engine: deterministic rules with gates, reuse, escalation with
-redaction, anchored journal, measured metrics. See its README.
+`examples/compliance_agent/` — the product's first rule pack: a
+compliance pre-check engine for regulated documents on this engine —
+deterministic rules with gates, reuse, escalation with redaction,
+anchored journal, measured metrics. See its README.
 
 ```bash
 python3 -m unittest tests.test_demo_agent -v

@@ -64,7 +64,7 @@ def builtin_skills(memory, registry):
             ("empty query finds nothing",
              lambda: _scratch_memory().find("") == []),
         ],
-        description="Find fresh verified fragments in local memory.",
+        description="Find fresh gate-passed fragments in local memory.",
     )
     summarise = Skill(
         "summarise", "0.1.0", _summarise_run(),

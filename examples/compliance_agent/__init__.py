@@ -1,11 +1,10 @@
-"""Compliance demo agent built on F.R.I.D.A.Y.
+"""Compliance pre-check built on F.R.I.D.A.Y.
 
-A Business-category demo for the Dubai Create AI Agents Championship:
-an agent that reviews regulated-company documents (payout reports,
-expense claims) against deterministic rules, on-device, with every
-step gated, journaled and anchored.
+The reference rule pack: reviews regulated-company documents (payout
+reports, expense claims) against deterministic rules, on-device, with
+every step gated, journaled and anchored.
 
-What the demo proves (and what it honestly does NOT):
+What this proves (and what it honestly does NOT):
 - proves: rule checks with acceptance gates, reuse, escalation with
   redaction of sensitive fragments, hash-chained journal, Merkle
   batch anchoring with offline inclusion proofs, and measured metrics
