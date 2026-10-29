@@ -18,6 +18,14 @@ from examples.compliance_agent.samples import (
     DOC_OK,
     DOC_SENSITIVE,
 )
+from friday.local_model import StubLocalModel
+
+STUB_ANSWERS = {
+    "line amount missing": (
+        "Cannot verify totals: one line has no integer amount. Ask "
+        "the submitter for a corrected document with all amounts "
+        "present; do not approve on partial sums.", 0.85),
+}
 
 
 def _show(report):
@@ -31,13 +39,19 @@ def _show(report):
         print("  ESCALATED %s reason=%s redacted=%d"
               % (item["rule_id"], item["reason"], item["redacted"]))
         print("    context: %r" % (item["context"],))
+        if "model_review" in item:
+            review = item["model_review"]
+            print("    local model review (conf %.2f, gate %s): %s"
+                  % (review["confidence"], review["gate"],
+                     review["text"]))
         if "big_model_review" not in item:
             print("    big-model review: PENDING (hook not connected "
                   "in this demo — no model call is faked)")
 
 
 def main():
-    agent = ComplianceAgent()
+    agent = ComplianceAgent(
+        local_model=StubLocalModel(STUB_ANSWERS))
     print("== F.R.I.D.A.Y. compliance demo ==")
     for doc in (DOC_OK, DOC_MISMATCH, DOC_SENSITIVE):
         _show(agent.review(doc))

@@ -85,13 +85,15 @@ def _rule_skill(rule_id, description, fn):
 class ComplianceAgent:
     """Review documents against the rule battery, on-device first."""
 
-    def __init__(self, memory=None, journal=None, threshold=0.8):
+    def __init__(self, memory=None, journal=None, threshold=0.8,
+                 local_model=None):
         self.memory = memory or Memory()
         self.journal = journal or Journal()
         self.registry = SkillRegistry()
         for rule_id, description, fn in RULES:
             self.registry.register(_rule_skill(rule_id, description, fn))
         self.gate = EscalationGate(threshold=threshold)
+        self.local_model = local_model
         self.anchor_service = AnchorService(
             HmacSigner("friday-demo"), NullTsa(),
             max_leaves=100, max_seconds=3600.0)
@@ -141,6 +143,21 @@ class ComplianceAgent:
                 item = {"rule_id": rule_id, "reason": "low_confidence",
                         "context": context, "redacted": redacted,
                         "detail": finding["detail"]}
+                if self.local_model is not None:
+                    prompt = (
+                        "Compliance finding %s: %s\n"
+                        "Shareable context only:\n%s\n"
+                        "Give a short judgment: what should the "
+                        "reviewer do next?"
+                        % (rule_id, finding["detail"], context))
+                    text, confidence = self.local_model.generate(
+                        prompt, budget=512)
+                    item["model_review"] = {
+                        "text": text, "confidence": confidence,
+                        "gate": self.gate.decide(confidence)}
+                    self.journal.append("model_review", {
+                        "doc_id": doc_id, "rule_id": rule_id,
+                        "confidence": confidence})
                 if self.big_model_review is not None:
                     item["big_model_review"] = self.big_model_review(item)
                 escalated.append(item)

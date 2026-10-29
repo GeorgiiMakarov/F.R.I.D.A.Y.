@@ -43,6 +43,27 @@ big-model review hook is intentionally unconnected in the demo —
 escalated findings report as PENDING, and no model call is faked.
 The claim is verifiability, cost and data locality.
 
+## Model in the loop
+
+Deterministic rules decide the verdict; a local model judges only
+what the rules cannot decide. Pass a `LocalModel` to `ComplianceAgent`
+and every escalated finding gets a `model_review` (text, confidence,
+gate decision), journaled like everything else. The model never
+overrides a flag: an undecidable document stays FLAGGED even when the
+model is confident — verification blocks, the model advises.
+
+The bundled demo uses `StubLocalModel` (canned answers, labelled).
+For a real small model, point the agent at a local server:
+
+```bash
+python3 -m examples.compliance_agent.run_with_model \
+    --base-url http://localhost:11434/v1 --model qwen2.5:3b
+```
+
+Save that script's output as the recorded run: model, device,
+elapsed time and metrics. A recorded real-model run is still pending
+hardware — the stub demo proves the loop, not model quality.
+
 ## Run it
 
 ```bash
