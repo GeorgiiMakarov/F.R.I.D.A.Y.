@@ -28,7 +28,7 @@ can serve a generate() call (llama.cpp server, Ollama, MLX, or any
 OpenAI-compatible endpoint) can back the engine.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.3"
 
 from friday.escalation import EscalationGate
 from friday.gates import Skill, SkillGate, SkillRegistry
