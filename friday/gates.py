@@ -10,6 +10,12 @@ not an afterthought: a skill without tests is not shippable.
 A "test" here is a zero-argument callable returning True (pass) or
 raising/returning False (fail). Tests must be deterministic and fast:
 the gate runs on the request path.
+
+Scope note (F-09): the battery gates a skill VERSION — it proves the
+skill still behaves on fixed regression cases. It does NOT validate
+runtime inputs: input validation is the skill's own job on each
+request. A skill that passes its battery can still fail on an input
+the battery never covered.
 """
 
 __all__ = ["Skill", "SkillGate", "SkillRegistry"]

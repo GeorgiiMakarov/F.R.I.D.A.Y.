@@ -21,7 +21,7 @@ Three rules:
 import re
 import time
 
-__all__ = ["Memory", "SHAREABLE", "SENSITIVE"]
+__all__ = ["Memory", "SHAREABLE", "SENSITIVE", "redact_text"]
 
 SHAREABLE = "shareable"
 SENSITIVE = "sensitive"
@@ -31,6 +31,10 @@ _SECRET_PATTERNS = [
     re.compile(r"(?i)\b(password|passwd|api[_-]?key|secret|token|bearer)\b\s*[:=]\s*\S+"),
     re.compile(r"\b[A-Za-z0-9_-]{32,}\b"),  # key-like token
     re.compile(r"\b\d{4}[ -]?\d{4}[ -]?\d{4}[ -]?\d{4}\b"),  # card-like
+    # Free-form password leaks ("password is hunter2", "password
+    # hunter2"): the key=value pattern above misses them. Over-flagging
+    # of "password policy" is accepted at an escalation boundary.
+    re.compile(r"(?i)\b(password|passwd)\s+(?:is\s+)?\S+"),
 ]
 
 
@@ -40,6 +44,21 @@ def classify_fragment(text):
         if pattern.search(text):
             return SENSITIVE
     return SHAREABLE
+
+
+def redact_text(text):
+    """Replace sensitive-pattern matches with [redacted].
+
+    Uses the engine's own definition of sensitive (the same patterns
+    as classify_fragment), so the two can never disagree about a text.
+    Used on text that leaves the device (e.g. the task inside an
+    Escalation). Free-form secrets matching no pattern remain a
+    documented stub limitation, exactly as with classify_fragment().
+    """
+    out = text
+    for pattern in _SECRET_PATTERNS:
+        out = pattern.sub("[redacted]", out)
+    return out
 
 
 def _tokens(text):
@@ -69,7 +88,13 @@ class Memory:
         return entry["value"]
 
     def find(self, query, limit=5):
-        """Token-overlap retrieval over fresh entries, best first."""
+        """Token-overlap retrieval over fresh, shareable entries.
+
+        Best first. An explicit SENSITIVE label always wins over the
+        text classifier (F-06): sensitive-labelled entries are never
+        returned here, so escalation context built from find() cannot
+        include them. Direct key access via get() is unaffected.
+        """
         query_tokens = _tokens(query)
         if not query_tokens:
             return []
@@ -77,6 +102,8 @@ class Memory:
         scored = []
         for key, entry in self._store.items():
             if now > entry["expiry"]:
+                continue
+            if entry["sensitivity"] != SHAREABLE:
                 continue
             hay = _tokens(key + " " + str(entry["value"]))
             overlap = len(query_tokens & hay)
@@ -86,6 +113,20 @@ class Memory:
         return [(key, value) for _, key, value in scored[:limit]]
 
     def export_shareable(self, items):
-        """Drop sensitive fragments from a list of (key, value) pairs."""
-        return [(k, v) for k, v in items
-                if classify_fragment(str(v)) == SHAREABLE]
+        """Drop sensitive fragments from a list of pairs or triples.
+
+        Pairs (key, value) are filtered by the text classifier only.
+        Triples (key, value, sensitivity) additionally drop any entry
+        whose explicit label is not SHAREABLE.
+        """
+        out = []
+        for item in items:
+            if len(item) == 3:
+                key, value, sensitivity = item
+                if sensitivity != SHAREABLE:
+                    continue
+            else:
+                key, value = item
+            if classify_fragment(str(value)) == SHAREABLE:
+                out.append((key, value))
+        return out

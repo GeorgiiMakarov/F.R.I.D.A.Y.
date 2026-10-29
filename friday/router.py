@@ -10,14 +10,16 @@ Request path, in order:
 3. Escalate: anything else — gate failure, low confidence, or no
    skill — returns an Escalation carrying a compressed context of
    SHAREABLE fragments only. Sensitive fragments are redacted, never
-   sent up. Journal event: "escalate".
+   sent up. The task inside the Escalation carries sensitive patterns
+   redacted (F-05); the journal keeps the raw task for local audit.
+   Journal event: "escalate".
 
 The router never invents a confidence: the skill returns one. A skill
 that cannot estimate its confidence must return 0.0, which escalates.
 """
 
 from friday.compress import compress
-from friday.memory import SHAREABLE, classify_fragment
+from friday.memory import SHAREABLE, classify_fragment, redact_text
 
 __all__ = ["Escalation", "Router"]
 
@@ -86,4 +88,7 @@ class Router:
             "task": task, "reasons": reasons, "detail": detail,
             "redacted": redacted,
         })
-        return "escalate", Escalation(task, compressed, reasons, redacted)
+        # The Escalation is the upward boundary: its task is redacted.
+        # The journal entry above keeps the raw task for local audit.
+        return "escalate", Escalation(redact_text(task), compressed,
+                                      reasons, redacted)

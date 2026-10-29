@@ -5,6 +5,11 @@ skill; the router is for single-skill tasks, the agent runs a battery):
 
 - each rule is registered as a Skill with a self-contained battery;
   a failed gate escalates the rule instead of running it;
+- a verdict is PASS only when every rule ran: a rule that never ran
+  (gate failure) yields REVIEW_REQUIRED, never PASS (F-02);
+- upward payloads carry nothing sensitive: escalation items hold a
+  redacted detail, a shareable-only context, fixed reasons and a
+  redacted count (pass-2 contract; enforced by TestEscalationContract);
 - every rule check is journaled; the verdict is journaled;
 - findings below the escalation threshold escalate with a context
   built from shareable fragments only (sensitive lines redacted and
@@ -23,10 +28,26 @@ pending review — the demo proves the pipeline, not model intelligence.
 from friday import EscalationGate, Journal, Memory, Skill, SkillRegistry
 from friday.anchor import AnchorService, HmacSigner, NullTsa
 from friday.compress import compress
-from friday.memory import SHAREABLE, classify_fragment
-from examples.compliance_agent.rules import RULES
+from friday.memory import SHAREABLE, classify_fragment, redact_text
+from examples.compliance_agent.rules import RULES, RULES_VERSION
+
+import hashlib
+import json
 
 __all__ = ["ComplianceAgent"]
+
+
+def _cache_key(doc_id, doc):
+    """Cache key: doc id + content hash + rule version.
+
+    A changed document or a changed rule set must not hit an old
+    report (F-03, extra-2). RULES_VERSION covers the rule set and the
+    report schema: bump it when either changes.
+    """
+    blob = json.dumps(doc, sort_keys=True, ensure_ascii=False,
+                      default=str)
+    digest = hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+    return "review:%s:%s:%s" % (doc_id, digest, RULES_VERSION)
 
 
 def _battery(rule_id, fn, good_doc, bad_doc, good_status="pass"):
@@ -78,7 +99,7 @@ def _rule_skill(rule_id, description, fn):
         ]
     else:
         battery = _battery(rule_id, fn, _GOOD_DOC, _BAD_DOCS[rule_id])
-    return Skill("rule_" + rule_id, "0.2.0", run, battery,
+    return Skill("rule_" + rule_id, RULES_VERSION, run, battery,
                  description=description)
 
 
@@ -108,7 +129,7 @@ class ComplianceAgent:
     def review(self, doc):
         """Review one document. Returns a report dict."""
         doc_id = doc.get("doc_id", "?")
-        cache_key = "review:" + str(doc_id)
+        cache_key = _cache_key(doc_id, doc)
         cached = self.memory.get(cache_key)
         if cached is not None:
             self.reuse_hits += 1
@@ -140,16 +161,20 @@ class ComplianceAgent:
             })
             if self.gate.decide(finding["confidence"]) == "escalate":
                 context, redacted = self._shareable_context(doc)
+                # Detail is part of the upward payload: redact it the
+                # same way as the task, so a present or future rule
+                # embedding raw document values cannot leak through it.
+                detail = redact_text(finding["detail"])
                 item = {"rule_id": rule_id, "reason": "low_confidence",
                         "context": context, "redacted": redacted,
-                        "detail": finding["detail"]}
+                        "detail": detail}
                 if self.local_model is not None:
                     prompt = (
                         "Compliance finding %s: %s\n"
                         "Shareable context only:\n%s\n"
                         "Give a short judgment: what should the "
                         "reviewer do next?"
-                        % (rule_id, finding["detail"], context))
+                        % (rule_id, detail, context))
                     text, confidence = self.local_model.generate(
                         prompt, budget=512)
                     item["model_review"] = {
@@ -165,8 +190,14 @@ class ComplianceAgent:
                     "doc_id": doc_id, "rule_id": rule_id,
                     "redacted": redacted})
 
-        verdict = "PASS" if all(f["status"] in ("pass", "note")
-                                for f in findings) else "FLAGGED"
+        verdict = "PASS"
+        if any(f["status"] in ("flag", "unsure") for f in findings):
+            verdict = "FLAGGED"
+        elif (any(item["reason"] == "gate_failed" for item in escalated)
+              or len(findings) != len(RULES)):
+            # A rule that never ran must not yield PASS (F-02): an
+            # unchecked document is REVIEW_REQUIRED, not clean.
+            verdict = "REVIEW_REQUIRED"
         report = {
             "doc_id": doc_id,
             "verdict": verdict,
@@ -178,8 +209,8 @@ class ComplianceAgent:
         self.escalated_total += len(escalated)
         self.full_chars += len(str(doc))
         self.up_chars += sum(len(item["context"]) for item in escalated)
-        self.memory.put(cache_key, report, "compliance_agent", "0.2.0",
-                        ttl_s=3600)
+        self.memory.put(cache_key, report, "compliance_agent",
+                        RULES_VERSION, ttl_s=3600)
         self.journal.append("verdict", {"doc_id": doc_id,
                                         "verdict": verdict})
         return report

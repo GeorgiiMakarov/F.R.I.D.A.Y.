@@ -1,5 +1,6 @@
 """Deterministic compliance rules. Amounts are integer minor units
-(cents/tiyn) — never floats, so totals reconcile exactly.
+(cents/tiyn) — never floats, so totals reconcile exactly — and must
+be non-negative: a negative total or line amount is flagged (extra-1).
 
 Each rule returns a finding dict:
   {rule_id, status, detail, confidence}
@@ -18,7 +19,12 @@ confidence must return 0.0 (escalate), never a guessed number.
 
 import re
 
-__all__ = ["RULES", "APPROVAL_LIMIT", "check_document"]
+__all__ = ["RULES", "RULES_VERSION", "APPROVAL_LIMIT", "check_document"]
+
+# Bumped whenever the rule set or the report schema changes. The agent
+# includes this version in its cache key, so a rule change invalidates
+# old cached reports (extra-2).
+RULES_VERSION = "0.2.0"
 
 APPROVAL_LIMIT = 1_000_000
 _PERIOD_RE = re.compile(r"^\d{4}-P[1-4]$")
@@ -56,6 +62,9 @@ def r2_totals(doc):
     if not isinstance(total, int) or isinstance(total, bool):
         return _finding("R2", "unsure", "total missing or not an integer",
                         0.3)
+    if total < 0 or any(a < 0 for a in amounts):
+        return _finding("R2", "flag", "negative amounts not allowed",
+                        0.98)
     if sum(amounts) == total:
         return _finding("R2", "pass",
                         "lines sum %d == total %d" % (sum(amounts), total),

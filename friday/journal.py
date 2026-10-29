@@ -25,6 +25,7 @@ against a full rebuild of the log from scratch: for that, anchor the
 head hash or batch roots externally and compare them later.
 """
 
+import copy
 import hashlib
 import json
 
@@ -69,7 +70,12 @@ class Journal:
         appending (I6). Entries without a key are always appended.
         """
         if idempotency_key is not None and idempotency_key in self._by_key:
-            return dict(self._by_key[idempotency_key])
+            return copy.deepcopy(self._by_key[idempotency_key])
+        # Deep-copy: the journal must own its snapshot. A shallow copy
+        # would let the caller mutate a stored entry through the
+        # original payload, the returned dict, or entries() (F-04).
+        payload = copy.deepcopy(payload)
+        runtime_context = copy.deepcopy(runtime_context)
         event = FrEvent(event_type, payload,
                         idempotency_key=idempotency_key,
                         occurred_at=occurred_at,
@@ -91,11 +97,11 @@ class Journal:
         self._entries.append(entry)
         if idempotency_key is not None:
             self._by_key[idempotency_key] = entry
-        return dict(entry)
+        return copy.deepcopy(entry)
 
     def entries(self):
-        """Copies of the entries (callers must not mutate the chain)."""
-        return [dict(e) for e in self._entries]
+        """Deep copies of the entries (callers must not mutate the chain)."""
+        return [copy.deepcopy(e) for e in self._entries]
 
     def head(self):
         """Head hash, or None for an empty journal. Anchor this value."""
@@ -104,8 +110,9 @@ class Journal:
         return self._entries[-1]["hash"]
 
     def unbatched(self):
-        """Entries not yet folded into a Merkle batch."""
-        return [dict(e) for e in self._entries if e["batch_id"] is None]
+        """Deep copies of entries not yet folded into a Merkle batch."""
+        return [copy.deepcopy(e) for e in self._entries
+                if e["batch_id"] is None]
 
     def mark_batched(self, event_ids, batch_id):
         """Stamp a batch id on entries. Never breaks verification:

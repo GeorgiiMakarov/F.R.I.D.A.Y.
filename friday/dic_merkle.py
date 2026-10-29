@@ -122,10 +122,15 @@ def verify_inclusion_proof(leaf_hash, proof, expected_root):
     leaf hash, the proof path and the published root."""
     current = leaf_hash
     for step in proof:
-        if step.position == "RIGHT":
+        position = getattr(step, "position", None)
+        if position == "RIGHT":
             current = _hash_pair(current, step.sibling_hash)
-        else:
+        elif position == "LEFT":
             current = _hash_pair(step.sibling_hash, current)
+        else:
+            # Strict positions (extra-3): anything that is not exactly
+            # LEFT or RIGHT is a malformed proof, not a left step.
+            return False
     return current == expected_root
 
 

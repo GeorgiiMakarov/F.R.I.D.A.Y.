@@ -123,7 +123,11 @@ class Ed25519Signer:
 
 
 class NullTsa:
-    """Local-only stamp. NOT an RFC 3161 token. Offline use only."""
+    """Local-only stamp. NOT an RFC 3161 token. Offline use only.
+
+    Tokens carry trust="local_untrusted" (F-10): no consumer may present
+    a local stamp as external proof of time for a third party.
+    """
 
     def __init__(self, authority_id="local"):
         self.authority_id = authority_id
@@ -133,7 +137,8 @@ class NullTsa:
         stamp = dt.datetime.now(dt.timezone.utc).isoformat()
         token = hashlib.sha256(digest + stamp.encode()).hexdigest()
         return {"token": token, "timestamp_iso": stamp,
-                "authority_id": self.authority_id}
+                "authority_id": self.authority_id,
+                "trust": "local_untrusted"}
 
     def verify(self, digest, token):
         if token.get("authority_id") != self.authority_id:
@@ -172,6 +177,12 @@ class AnchorService:
         self._clock = clock or time.time
         self.proof_store = {}  # leaf_hex -> proof row dict
         self.anchors = {}  # batch_id -> AnchorRecord
+        # Event ids already folded into the builder. anchor_pending()
+        # runs on every call, but an unbatched entry must be added
+        # exactly once: without this set, repeated non-closing calls
+        # duplicate leaves (F-01). Cleared on close (all pending close
+        # at once).
+        self._added = set()
 
     def anchor_pending(self, journal, force=False):
         """Fold unbatched journal entries into the builder and close
@@ -179,6 +190,9 @@ class AnchorService:
         or None when nothing closed."""
         now = self._clock()
         for entry in journal.unbatched():
+            if entry["event_id"] in self._added:
+                continue
+            self._added.add(entry["event_id"])
             self._builder.add_leaf(
                 bytes.fromhex(entry["hash"]), entry["event_id"],
                 decision_id=entry["event"], now_ts=now)
@@ -187,6 +201,7 @@ class AnchorService:
         if not force and not self._builder.should_close(now):
             return None
         batch, root, pending = self._builder.close_and_reset()
+        self._added.clear()
         batch_id = uuid.uuid4().hex
         signature = self._signer.sign(
             _signed_payload(root, len(pending)))

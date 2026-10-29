@@ -28,6 +28,7 @@ Serving notes for the 4 GB class (top smartphones and laptops):
 """
 
 import json
+import math
 import urllib.error
 import urllib.request
 
@@ -90,12 +91,21 @@ class OpenAICompatibleLocalModel(LocalModel):
         choice = payload["choices"][0]
         text = choice["message"]["content"]
         if payload.get("confidence") is not None:
-            return text, float(payload["confidence"])
+            # Validate at the adapter boundary (F-07): an out-of-range
+            # or non-finite confidence is treated as absent (0.0,
+            # escalate), never passed on. Without this, a bad value
+            # crashes the gate downstream with ValueError.
+            try:
+                conf = float(payload["confidence"])
+            except (TypeError, ValueError):
+                return text, 0.0
+            if not math.isfinite(conf) or not 0.0 <= conf <= 1.0:
+                return text, 0.0
+            return text, conf
         logprobs = (choice.get("logprobs") or {}).get("content") or []
         vals = [item["logprob"] for item in logprobs
                 if isinstance(item, dict) and "logprob" in item]
         if vals:
-            import math
             conf = math.exp(sum(vals) / len(vals))
             return text, min(1.0, max(0.0, conf))
         return text, 0.0
