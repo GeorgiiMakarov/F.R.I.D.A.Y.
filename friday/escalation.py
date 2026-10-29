@@ -14,6 +14,15 @@ Both error directions are counted, because they cost differently:
 - missed escalation: answered locally although the answer was wrong
   (quality loss, the dangerous direction).
 
+was_correct in record_outcome() always describes the LOCAL answer,
+never the large model's answer (Grok audit): the old code counted
+"escalated and final answer wrong" as a false escalation, which is
+a big-model error, not a wasted call — and counted "escalated and
+local answer right" as correct_up, which is exactly the documented
+false escalation. An escalated decision with a wrong local answer
+was a justified escalation; whether the large model then got it
+right is a separate measurement this API does not take.
+
 Feedback arrives later than the routing decision, so outcomes are
 recorded separately through record_outcome().
 """
@@ -33,7 +42,7 @@ class EscalationGate:
         self.false_escalations = 0
         self.missed_escalations = 0
         self.correct_local = 0
-        self.correct_up = 0
+        self.justified_escalations = 0
 
     def decide(self, confidence):
         """Return 'local' or 'escalate' for a confidence in [0, 1]."""
@@ -46,14 +55,18 @@ class EscalationGate:
         return "escalate"
 
     def record_outcome(self, was_escalated, was_correct):
-        """Record ground truth for a routed decision, when it is known."""
+        """Record ground truth for a routed decision, when it is known.
+
+        was_correct describes the LOCAL answer: True when the local
+        answer was right. So an escalated decision with a right local
+        answer is a false escalation (wasted cost), and an escalated
+        decision with a wrong local answer was justified.
+        """
         if was_escalated:
             if was_correct:
-                # The large model was right; escalation was not wasted
-                # in quality terms, but count quality, not cost, here.
-                self.correct_up += 1
-            else:
                 self.false_escalations += 1
+            else:
+                self.justified_escalations += 1
         else:
             if was_correct:
                 self.correct_local += 1
@@ -64,13 +77,14 @@ class EscalationGate:
         """Rates that decide whether the threshold needs moving."""
         decided = self.routed_local + self.routed_up
         judged = (self.correct_local + self.missed_escalations
-                  + self.correct_up + self.false_escalations)
+                  + self.justified_escalations + self.false_escalations)
         return {
             "threshold": self.threshold,
             "routed_local": self.routed_local,
             "routed_up": self.routed_up,
             "false_escalations": self.false_escalations,
             "missed_escalations": self.missed_escalations,
+            "justified_escalations": self.justified_escalations,
             "escalation_rate": (self.routed_up / decided) if decided else 0.0,
             "miss_rate_on_judged": (
                 self.missed_escalations / judged) if judged else 0.0,

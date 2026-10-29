@@ -2,9 +2,12 @@
 
 Three rules:
 
-1. Reuse only verified, fresh results. Every stored value carries the
-   skill and version that produced it and a time-to-live. Expired or
-   unverified entries are invisible to lookup, never silently reused.
+1. Reuse only fresh, gate-passed results. Every stored value carries the
+   skill and version that produced it and a time-to-live. Expired
+   entries are invisible to lookup, never silently reused.
+   "Gate-passed" is NOT "verified": passing a skill's battery is not
+   correctness (see skill_trace.py) — the word "verified" must not be
+   used for memory entries.
 2. Lookup is token overlap (a stub for embedding retrieval). The
    interface is deliberately narrow — put/find — so a real retriever
    can replace the stub without touching callers.
@@ -16,8 +19,14 @@ Three rules:
    replaces classify_fragment() with a local classifier model and
    re-measures it on a labelled set — relevance filtering alone is
    NOT data protection.
+
+Ownership: the store deep-copies values on put and on every read
+(Grok audit). A caller mutating a returned value must never corrupt
+the cache — the F-04 journal fix did not cover memory, and the agent
+reuse path proved it.
 """
 
+import copy
 import re
 import time
 
@@ -74,7 +83,7 @@ class Memory:
 
     def put(self, key, value, skill, version, ttl_s, sensitivity=SHAREABLE):
         self._store[key] = {
-            "value": value,
+            "value": copy.deepcopy(value),
             "skill": skill,
             "version": version,
             "expiry": self._clock() + ttl_s,
@@ -85,7 +94,23 @@ class Memory:
         entry = self._store.get(key)
         if entry is None or self._clock() > entry["expiry"]:
             return None
-        return entry["value"]
+        return copy.deepcopy(entry["value"])
+
+    def lookup(self, key):
+        """Full entry copy (value, skill, version) or None.
+
+        The router needs the producer's identity, not just the value:
+        reuse is valid only for the same skill and version (Grok audit).
+        """
+        entry = self._store.get(key)
+        if entry is None or self._clock() > entry["expiry"]:
+            return None
+        return {
+            "value": copy.deepcopy(entry["value"]),
+            "skill": entry["skill"],
+            "version": entry["version"],
+            "sensitivity": entry["sensitivity"],
+        }
 
     def find(self, query, limit=5):
         """Token-overlap retrieval over fresh, shareable entries.
@@ -108,7 +133,7 @@ class Memory:
             hay = _tokens(key + " " + str(entry["value"]))
             overlap = len(query_tokens & hay)
             if overlap:
-                scored.append((overlap, key, entry["value"]))
+                scored.append((overlap, key, copy.deepcopy(entry["value"])))
         scored.sort(key=lambda item: (-item[0], item[1]))
         return [(key, value) for _, key, value in scored[:limit]]
 
@@ -128,5 +153,5 @@ class Memory:
             else:
                 key, value = item
             if classify_fragment(str(value)) == SHAREABLE:
-                out.append((key, value))
+                out.append((key, copy.deepcopy(value)))
         return out

@@ -215,6 +215,8 @@ class AnchorService:
                 "proof_path": [(s.sibling_hash.hex(), s.position)
                                for s in steps],
                 "root": root.hex(),
+                "leaf_count": len(pending),
+                "key_id": self._signer.key_id(),
                 "anchor_signature": signature.hex(),
                 "anchor_timestamp": tsa_token["timestamp_iso"],
                 "batch_id": batch_id,

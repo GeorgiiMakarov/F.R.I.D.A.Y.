@@ -65,11 +65,16 @@ class TestEscalationGate(unittest.TestCase):
         gate = EscalationGate(threshold=0.8)
         gate.decide(0.9)
         gate.decide(0.1)
+        # was_correct describes the LOCAL answer (Grok audit): a local
+        # miss answered locally, a wasted call (local right, went up),
+        # and a justified call (local wrong, went up).
         gate.record_outcome(was_escalated=False, was_correct=False)
+        gate.record_outcome(was_escalated=True, was_correct=True)
         gate.record_outcome(was_escalated=True, was_correct=False)
         report = gate.report()
         self.assertEqual(report["missed_escalations"], 1)
         self.assertEqual(report["false_escalations"], 1)
+        self.assertEqual(report["justified_escalations"], 1)
 
 
 class TestGates(unittest.TestCase):

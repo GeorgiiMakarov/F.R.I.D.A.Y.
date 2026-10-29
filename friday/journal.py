@@ -2,9 +2,9 @@
 
 Entries are FrEvent records (see events.py). Each entry carries its own
 SHA-256 over a canonical encoding of (index, previous hash, event type,
-payload, idempotency key, event id). Verification replays the chain:
-any edited, removed or reordered entry breaks its own hash and every
-hash after it.
+payload, idempotency key, event id, runtime_context). Verification
+replays the chain: any edited, removed or reordered entry breaks its
+own hash and every hash after it.
 
 Two DIC invariants are built into the shape of this class:
 
@@ -18,7 +18,10 @@ Two DIC invariants are built into the shape of this class:
 
 Time: occurred_at is stored but NOT hashed (wall clocks lie and break
 deterministic replay). Trusted time comes from the anchor's TSA stamp
-(see anchor.py), not from the entry.
+(see anchor.py), not from the entry. runtime_context IS hashed, even
+though the router never inspects it (Grok audit): the old code left it
+out while the docstring named only occurred_at as excluded, so
+swapping alice for mallory verified clean.
 
 The journal proves tampering *inside* the log. It does NOT protect
 against a full rebuild of the log from scratch: for that, anchor the
@@ -49,6 +52,7 @@ def _entry_hash(index, prev_hash, event):
         "payload": event.payload,
         "idempotency_key": event.idempotency_key,
         "event_id": event.event_id,
+        "runtime_context": event.runtime_context,
     })).hexdigest()
 
 
@@ -141,7 +145,8 @@ class Journal:
             event = FrEvent(
                 entry["event"], entry["payload"],
                 idempotency_key=entry.get("idempotency_key"),
-                event_id=entry["event_id"])
+                event_id=entry["event_id"],
+                runtime_context=entry.get("runtime_context") or {})
             expect = _entry_hash(entry["index"], prev, event)
             if entry["hash"] != expect:
                 return False, entry["index"]

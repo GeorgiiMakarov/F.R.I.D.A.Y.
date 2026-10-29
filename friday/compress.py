@@ -11,6 +11,13 @@ Two things compression must never do, and this module does not do:
   carries its source links, and the router keeps the full text local
   so escalation can still send the relevant original fragments.
 
+A kept line must also not be sensitive (Grok audit): the old keep
+rules dropped "submitter: Georgii Makarov" (no digit, no keyword)
+while keeping any digit-bearing line, including a secret-bearing one.
+Sensitive lines are dropped even when they match a keep rule — the
+router and the agent filter before compressing, and compress itself
+is the second lock, not the first.
+
 fidelity_check() is the acceptance battery for a compression scheme:
 run a decision function on the full context and on the compressed
 context over the same cases, and report the agreement rate. A scheme
@@ -19,6 +26,8 @@ ships only with a measured agreement rate, not with a promise.
 
 import re
 
+from friday.memory import SHAREABLE, classify_fragment
+
 __all__ = ["compress", "fidelity_check"]
 
 _KEEP_PATTERNS = [
@@ -26,10 +35,14 @@ _KEEP_PATTERNS = [
     re.compile(r"(?i)\b(must|never|only|limit|budget|deadline|required|forbidden)\b"),
     re.compile(r'"[^"]+"'),  # quoted text is kept verbatim
     re.compile(r"https?://\S+"),  # links are kept verbatim
+    re.compile(r"^\s*[A-Za-z_][A-Za-z0-9_ ]{0,40}:\s*\S"),  # labeled field
+    re.compile(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b"),  # a person's name
 ]
 
 
 def _keep(line):
+    if classify_fragment(line) != SHAREABLE:
+        return False
     return any(pattern.search(line) for pattern in _KEEP_PATTERNS)
 
 

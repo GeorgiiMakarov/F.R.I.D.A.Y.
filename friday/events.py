@@ -23,7 +23,10 @@ class FrEvent:
     """One journaled fact. occurred_at is asserted wall-clock time: it
     is stored on the entry but NOT covered by the chain hash (wall
     clocks lie and break deterministic replay). Trusted time comes
-    from the anchor's TSA stamp, not from the entry. See journal.py."""
+    from the anchor's TSA stamp, not from the entry. See journal.py.
+    runtime_context is the opposite case: opaque to routing, but
+    covered by the chain hash, so swapping it breaks verification.
+    It must be JSON-serializable, like the payload."""
 
     __slots__ = ("event_id", "event_type", "payload", "idempotency_key",
                  "occurred_at", "runtime_context")

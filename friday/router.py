@@ -2,11 +2,13 @@
 
 Request path, in order:
 
-1. Reuse: a fresh, verified memory entry for the task answers it
-   without any reasoning. Journal event: "reuse".
-2. Local skill: the skill's acceptance gate must pass, then the
-   skill runs. If its confidence meets the escalation threshold,
-   the answer is local. Journal event: "local_answer".
+1. Gate, then reuse: the skill's battery runs first. A failed gate
+   blocks reuse and forces escalation — a stale answer from a skill
+   that no longer passes must never be served. A fresh entry from
+   the SAME skill and version answers the task without any reasoning.
+   Journal event: "reuse", naming the true producer.
+2. Local skill: the skill runs. If its confidence meets the escalation
+   threshold, the answer is local. Journal event: "local_answer".
 3. Escalate: anything else — gate failure, low confidence, or no
    skill — returns an Escalation carrying a compressed context of
    SHAREABLE fragments only. Sensitive fragments are redacted, never
@@ -50,14 +52,18 @@ class Router:
 
     def handle(self, task, skill_name):
         """Returns (kind, payload): kind in reuse/local/escalate."""
-        cached = self.memory.get(task)
-        if cached is not None:
-            self.journal.append("reuse", {"task": task, "skill": skill_name})
-            return "reuse", cached
-
         skill, gate_report = self.registry.get_gated(skill_name)
         if skill is None:
             return self._escalate(task, ["gate_failed"], gate_report)
+
+        # Reuse only for the same skill and version (Grok audit): the
+        # old key was the task text alone, so another skill's answer
+        # was served as this skill's — and journaled as its own.
+        cached = self.memory.lookup(task)
+        if (cached is not None and cached["skill"] == skill.name
+                and cached["version"] == skill.version):
+            self.journal.append("reuse", {"task": task, "skill": skill.name})
+            return "reuse", cached["value"]
 
         answer, confidence = skill.run(task)
         route = self.gate.decide(confidence)

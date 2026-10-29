@@ -5,8 +5,15 @@ skill; the router is for single-skill tasks, the agent runs a battery):
 
 - each rule is registered as a Skill with a self-contained battery;
   a failed gate escalates the rule instead of running it;
-- a verdict is PASS only when every rule ran: a rule that never ran
-  (gate failure) yields REVIEW_REQUIRED, never PASS (F-02);
+- a verdict is PASS only when every rule ran AND none escalated on
+  low confidence: a rule that never ran (gate failure) yields
+  REVIEW_REQUIRED, never PASS (F-02), and so does a document whose
+  findings all passed but were all escalated (Grok audit — a PASS
+  stamp on a document the system itself refused to accept locally
+  is a contradiction);
+- the report carries "gates_failed": rule ids that never ran, so
+  partial coverage is visible at report level, not only inside the
+  escalated list (Grok audit, mixed-gate case);
 - upward payloads carry nothing sensitive: escalation items hold a
   redacted detail, a shareable-only context, fixed reasons and a
   redacted count (pass-2 contract; enforced by TestEscalationContract);
@@ -141,9 +148,11 @@ class ComplianceAgent:
         self.reviews += 1
         findings = []
         escalated = []
+        gates_failed = []
         for rule_id, _description, fn in RULES:
             skill, gate_report = self.registry.get_gated("rule_" + rule_id)
             if skill is None:
+                gates_failed.append(rule_id)
                 escalated.append({
                     "rule_id": rule_id, "reason": "gate_failed",
                     "context": "", "redacted": 0,
@@ -193,16 +202,21 @@ class ComplianceAgent:
         verdict = "PASS"
         if any(f["status"] in ("flag", "unsure") for f in findings):
             verdict = "FLAGGED"
-        elif (any(item["reason"] == "gate_failed" for item in escalated)
-              or len(findings) != len(RULES)):
-            # A rule that never ran must not yield PASS (F-02): an
-            # unchecked document is REVIEW_REQUIRED, not clean.
+        elif (gates_failed or len(findings) != len(RULES)
+              or any(item["reason"] == "low_confidence"
+                     for item in escalated)):
+            # A rule that never ran must not yield PASS (F-02), and
+            # neither must a document whose findings all passed but
+            # were escalated on low confidence (Grok audit): the
+            # system refused its own local answers, so the document
+            # is REVIEW_REQUIRED, not clean.
             verdict = "REVIEW_REQUIRED"
         report = {
             "doc_id": doc_id,
             "verdict": verdict,
             "findings": findings,
             "escalated": escalated,
+            "gates_failed": gates_failed,
             "reuse_hit": False,
         }
         self.findings_total += len(findings)

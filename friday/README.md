@@ -20,16 +20,16 @@ without a check that can fail.
 3. **Hash-chained journal.** Every action is appended to a
    tamper-evident chain. The head hash can be anchored externally
    (this repo's Merkle/TSA anchoring fits here).
-4. **Local memory and cache.** Indexed, fresh-only reuse of verified
-   results. Expired or unverified entries are invisible.
+4. **Local memory and cache.** Indexed, fresh-only reuse of gate-passed
+   results. Expired entries are invisible.
 5. **Loss-aware compression.** Extractive only: numbers, constraints,
    names and quoted text survive verbatim; summaries link to sources.
-6. **Result reuse.** Same task, fresh verified result — no re-reasoning.
+6. **Result reuse.** Same task, fresh gate-passed result — no re-reasoning.
 7. **Fragment classification.** Shareable vs. sensitive, checked before
    anything leaves the device. Relevance filtering alone is NOT data
    protection; the built-in classifier is a rule-based stub to be
    replaced by a measured local classifier.
-8. **Skill back-transfer (offline).** Verified journaled traces become
+8. **Skill back-transfer (offline).** Reviewed journaled traces become
    training pairs for adapters; an adapter ships as a new skill version
    behind the same gate. The runtime never trains on live traffic.
 

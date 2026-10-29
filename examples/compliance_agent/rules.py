@@ -19,16 +19,18 @@ confidence must return 0.0 (escalate), never a guessed number.
 
 import re
 
+from friday.memory import SENSITIVE, classify_fragment
+
 __all__ = ["RULES", "RULES_VERSION", "APPROVAL_LIMIT", "check_document"]
 
 # Bumped whenever the rule set or the report schema changes. The agent
 # includes this version in its cache key, so a rule change invalidates
-# old cached reports (extra-2).
-RULES_VERSION = "0.2.0"
+# old cached reports (extra-2). 0.3.0: R4 unsure on missing/negative/
+# non-integer totals, R6 on the engine's sensitivity patterns (Grok).
+RULES_VERSION = "0.3.0"
 
 APPROVAL_LIMIT = 1_000_000
 _PERIOD_RE = re.compile(r"^\d{4}-P[1-4]$")
-_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
 def _finding(rule_id, status, detail, confidence):
@@ -84,14 +86,23 @@ def r3_period(doc):
 
 def r4_approval(doc):
     total = doc.get("total_minor")
-    if isinstance(total, int) and total > APPROVAL_LIMIT:
+    if not isinstance(total, int) or isinstance(total, bool):
+        # No total to judge approval against: unsure, not pass (Grok).
+        # The old code passed here with "under limit or approver
+        # present" — a lie when there is no total at all, and a lie
+        # for floats, which are not valid minor units.
+        return _finding("R4", "unsure",
+                        "total missing or not an integer", 0.3)
+    if total < 0:
+        return _finding("R4", "unsure", "negative total", 0.3)
+    if total > APPROVAL_LIMIT:
         if doc.get("approver"):
             return _finding("R4", "pass", "over-limit approval present",
                             0.95)
         return _finding("R4", "flag",
                         "total %d over limit %d without approver"
                         % (total, APPROVAL_LIMIT), 0.95)
-    return _finding("R4", "pass", "under limit or approver present", 0.95)
+    return _finding("R4", "pass", "under limit", 0.95)
 
 
 def r5_evidence(doc):
@@ -121,9 +132,12 @@ def r6_sensitive(doc):
                 walk(item)
 
     walk(doc)
-    if any(_EMAIL_RE.search(text) for text in texts):
+    # Same definition of sensitive as the engine classifier (Grok):
+    # the old email-only check reported "no sensitive patterns found"
+    # for "password is hunter2", while the engine flagged it.
+    if any(classify_fragment(text) == SENSITIVE for text in texts):
         return _finding("R6", "note",
-                        "sensitive data present (email) -> redact on "
+                        "sensitive data present -> redact on "
                         "escalation", 0.95)
     return _finding("R6", "note", "no sensitive patterns found", 0.95)
 

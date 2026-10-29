@@ -6,7 +6,7 @@ behaviour the router depends on. A skill that grows gets a bigger
 battery before it ships, not after. Batteries are self-contained:
 they never depend on caller state.
 
-Skill back-transfer (verified traces -> adapters) is deliberately a
+Skill back-transfer (reviewed traces -> adapters) is deliberately a
 separate, offline step, not a runtime feature: collect journaled
 (local_answer) traces, review them, export training pairs, train an
 adapter, then ship the adapter as a new skill version behind the same
