@@ -4,7 +4,11 @@ Synchronous mirror of decision-intelligence-core's MerkleAnchorService
 (application/merkle_anchor_service.py), minus the server parts:
 
 - close trigger: N leaves OR T seconds (MerkleBatchBuilder, DIC);
-- sign the root (Signer protocol, DIC interfaces/signer.py);
+- sign root AND leaf count (Signer protocol, DIC interfaces/signer.py):
+  the signed payload binds both, so a batch presented with a forged
+  leaf count fails verification even when the root collides under the
+  DIC duplication convention ([A,B,C] vs [A,B,C,C] share a root);
+  signing the root alone would leave that hole open;
 - timestamp the root (TimestampAuthority protocol, DIC interfaces/tsa.py);
 - project one proof row per leaf into an in-memory proof store
   (DIC projects into ProjectionStore; on-device, a dict is enough);
@@ -44,6 +48,18 @@ __all__ = [
     "AnchorService",
     "AnchorRecord",
 ]
+
+
+def _signed_payload(root, leaf_count):
+    """Canonical bytes covered by the anchor signature.
+
+    Binding the leaf count to the root closes the DIC duplication
+    collision: a 3-leaf batch [A,B,C] and a forged 4-leaf batch
+    [A,B,C,C] share a root, but their signed payloads differ, so the
+    forged batch fails signature verification.
+    """
+    return (b"friday-anchor-v1\x00" + bytes(root) + b"\x00"
+            + int(leaf_count).to_bytes(8, "big"))
 
 
 class HmacSigner:
@@ -172,7 +188,8 @@ class AnchorService:
             return None
         batch, root, pending = self._builder.close_and_reset()
         batch_id = uuid.uuid4().hex
-        signature = self._signer.sign(root)
+        signature = self._signer.sign(
+            _signed_payload(root, len(pending)))
         tsa_token = self._tsa.timestamp(root)
         proofs = {}
         for idx, leaf in enumerate(pending):
@@ -193,6 +210,22 @@ class AnchorService:
                               len(pending), proofs)
         self.anchors[batch_id] = record
         return record
+
+    def verify_anchor_signature(self, record):
+        """Check a record's signature over (root, leaf_count).
+
+        Returns False for a record whose leaf count was altered after
+        signing, even if the root still matches (the DIC duplication
+        collision). For Ed25519 the signer's public key is used; for
+        HMAC the shared secret (integrity only, not authorship).
+        """
+        payload = _signed_payload(record.root, record.leaf_count)
+        public_key = self._signer.public_key_bytes() or None
+        try:
+            return bool(self._signer.verify(
+                payload, record.signature, public_key))
+        except Exception:
+            return False
 
     def verify_proof(self, leaf_hex, proof, root_hex):
         """Offline inclusion check, no service needed."""

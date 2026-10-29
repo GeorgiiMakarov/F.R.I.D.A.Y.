@@ -239,8 +239,7 @@ class TestAnchor(unittest.TestCase):
         record = anchor.anchor_pending(journal, force=True)
         self.assertIsNotNone(record)
         self.assertEqual(record.leaf_count, 3)
-        self.assertTrue(anchor._signer.verify(
-            record.root, record.signature, None))
+        self.assertTrue(anchor.verify_anchor_signature(record))
         first = journal.entries()[0]["hash"]
         self.assertTrue(anchor.verify_proof(
             first, record.proofs[first], record.root_hex))
