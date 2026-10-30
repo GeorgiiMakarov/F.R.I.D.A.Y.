@@ -84,7 +84,13 @@ class HmacSigner:
 
 
 class Ed25519Signer:
-    """Public-key signer, same API as DIC's. Requires `cryptography`."""
+    """Public-key signer, same API as DIC's. Requires `cryptography`.
+
+    A signer built from a private key signs; a signer built from
+    public bytes only (from_public_bytes) verifies old anchors but
+    cannot sign — that is the verifier's shape for a pilot, where the
+    private key must never leave its custodian.
+    """
 
     def __init__(self, private_key=None, key_id="friday-ed25519-v1"):
         try:
@@ -99,6 +105,9 @@ class Ed25519Signer:
         self._key_id = key_id
 
     def sign(self, payload):
+        if self._private_key is None:
+            raise RuntimeError(
+                "this signer holds a public key only and cannot sign")
         return self._private_key.sign(payload)
 
     def verify(self, payload, signature, public_key):
@@ -120,6 +129,53 @@ class Ed25519Signer:
 
     def key_id(self):
         return self._key_id
+
+    def private_bytes(self):
+        """PEM PKCS8, unencrypted. Pilot-grade custody only: whoever
+        holds this file can sign as this key. Production needs a key
+        manager or HSM; a file key is copied with the disk."""
+        if self._private_key is None:
+            raise RuntimeError(
+                "this signer holds a public key only and cannot export")
+        from cryptography.hazmat.primitives import serialization
+        return self._private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption())
+
+    def save_private_key(self, path):
+        """Write the private PEM with mode 0600 (POSIX). The public
+        key must be published separately for third parties to verify
+        old anchors (see save_public_key)."""
+        import os
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(self.private_bytes())
+
+    def save_public_key(self, path):
+        """Write key_id + hex public key, for verifiers of old anchors."""
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(self.key_id() + "\n" + self.public_key_bytes().hex()
+                     + "\n")
+
+    @classmethod
+    def from_private_key_file(cls, path, key_id="friday-ed25519-v1"):
+        from cryptography.hazmat.primitives import serialization
+        with open(path, "rb") as fh:
+            key = serialization.load_pem_private_key(fh.read(),
+                                                     password=None)
+        return cls(private_key=key, key_id=key_id)
+
+    @classmethod
+    def from_public_bytes(cls, public_bytes, key_id="friday-ed25519-v1"):
+        """Verifier-only signer: verifies, never signs."""
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+            Ed25519PublicKey)
+        obj = cls.__new__(cls)
+        obj._private_key = None
+        obj._public_key = Ed25519PublicKey.from_public_bytes(public_bytes)
+        obj._key_id = key_id
+        return obj
 
 
 class NullTsa:
@@ -165,16 +221,65 @@ class AnchorRecord:
     def root_hex(self):
         return self.root.hex()
 
+    def to_dict(self):
+        """Disk shape: root, signature, key_id, leaf count, stamp.
+
+        Proof rows are NOT persisted: they are recomputed from the
+        journal entries of the batch (leaf order = entry order within
+        the batch), so the file stays small and the anchor stays the
+        single signed claim.
+        """
+        return {
+            "batch_id": self.batch_id,
+            "root": self.root_hex,
+            "signature": self.signature.hex(),
+            "key_id": self.key_id,
+            "leaf_count": self.leaf_count,
+            "tsa_token": self.tsa_token,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            batch_id=data["batch_id"],
+            root=bytes.fromhex(data["root"]),
+            signature=bytes.fromhex(data["signature"]),
+            key_id=data["key_id"],
+            tsa_token=data["tsa_token"],
+            leaf_count=data["leaf_count"],
+            proofs={},  # recomputed from the journal, not restored
+        )
+
 
 class AnchorService:
     """Close journal batches and anchor them (DIC flow, sync, local)."""
 
     def __init__(self, signer, tsa, max_leaves=100, max_seconds=300.0,
-                 clock=None):
+                 clock=None, pilot_mode=False, on_anchor=None):
+        """pilot_mode: accept only Ed25519Signer. HMAC proves integrity
+        under a shared secret, not authorship, and the demo HMAC keys
+        (friday-demo, demo-secret) are public in this repo — a pilot
+        that must show evidence to a third party cannot sign with
+        them. Pilot mode also requires the `cryptography` package
+        (Ed25519Signer raises without it); install the ed25519 extra.
+
+        on_anchor: optional callback(record) invoked when a batch
+        closes, BEFORE entries are marked batched — so a failed
+        callback (for example a failed disk write) leaves the batch
+        retryable: it closes again under a new batch_id on the next
+        call instead of being marked but unrecorded.
+        """
+        if pilot_mode and not isinstance(signer, Ed25519Signer):
+            raise ValueError(
+                "pilot mode requires Ed25519Signer: HMAC proves "
+                "integrity only, not authorship, and the demo HMAC "
+                "keys are public in this repo")
         self._builder = MerkleBatchBuilder(max_leaves, max_seconds)
         self._signer = signer
         self._tsa = tsa
         self._clock = clock or time.time
+        self._pilot_mode = pilot_mode
+        self._on_anchor = on_anchor
         self.proof_store = {}  # leaf_hex -> proof row dict
         self.anchors = {}  # batch_id -> AnchorRecord
         # Event ids already folded into the builder. anchor_pending()
@@ -221,10 +326,12 @@ class AnchorService:
                 "anchor_timestamp": tsa_token["timestamp_iso"],
                 "batch_id": batch_id,
             }
-        journal.mark_batched([p.event_id for p in pending], batch_id)
         record = AnchorRecord(batch_id, root, signature,
                               self._signer.key_id(), tsa_token,
                               len(pending), proofs)
+        if self._on_anchor is not None:
+            self._on_anchor(record)
+        journal.mark_batched([p.event_id for p in pending], batch_id)
         self.anchors[batch_id] = record
         return record
 

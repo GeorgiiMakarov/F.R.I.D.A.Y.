@@ -17,8 +17,9 @@ Two DIC invariants are built into the shape of this class:
   would be a race; folding the check into append() removes it.
 
 Time: occurred_at is stored but NOT hashed (wall clocks lie and break
-deterministic replay). Trusted time comes from the anchor's TSA stamp
-(see anchor.py), not from the entry. runtime_context IS hashed, even
+deterministic replay). Trusted time comes from a real RFC 3161 TSA
+stamp (see anchor.py), not from the entry; the local NullTsa stamp
+proves nothing (trust local_untrusted). runtime_context IS hashed, even
 though the router never inspects it (Grok audit): the old code left it
 out while the docstring named only occurred_at as excluded, so
 swapping alice for mallory verified clean.
@@ -133,6 +134,42 @@ class Journal:
     def verify_external(self, entries):
         """Verify an exported entry list (same rules as verify())."""
         return self._verify_list(entries)
+
+    @classmethod
+    def from_entries(cls, entries, batch_marks=None):
+        """Rebuild a journal from stored entries (persistence load path).
+
+        Verifies the chain before installing anything: a broken chain
+        raises ValueError instead of silently starting a new one.
+        batch_marks is a list of (event_id, batch_id) pairs applied
+        after verification (batch_id is not hashed, so marks never
+        break it). A mark for an unknown event_id, or a duplicate
+        idempotency key, is corruption, not a no-op.
+        """
+        try:
+            ok, bad = cls._verify_list(entries)
+        except (KeyError, TypeError, AttributeError) as exc:
+            raise ValueError(f"malformed stored entry: {exc}") from exc
+        if not ok:
+            raise ValueError(f"journal chain broken at index {bad}")
+        journal = cls()
+        journal._entries = copy.deepcopy(entries)
+        for entry in journal._entries:
+            key = entry.get("idempotency_key")
+            if key is not None:
+                if key in journal._by_key:
+                    raise ValueError(
+                        f"duplicate idempotency key in stored journal: {key!r}")
+                journal._by_key[key] = entry
+        for event_id, batch_id in (batch_marks or []):
+            for entry in journal._entries:
+                if entry["event_id"] == event_id:
+                    entry["batch_id"] = batch_id
+                    break
+            else:
+                raise ValueError(
+                    f"batch mark for unknown event_id {event_id!r}")
+        return journal
 
     @staticmethod
     def _verify_list(entries):

@@ -28,18 +28,20 @@ can serve a generate() call (llama.cpp server, Ollama, MLX, or any
 OpenAI-compatible endpoint) can back the engine.
 """
 
-__version__ = "0.2.3"
+__version__ = "0.3.1"
 
 from friday.escalation import EscalationGate
 from friday.gates import Skill, SkillGate, SkillRegistry
 from friday.journal import Journal
 from friday.memory import Memory
 from friday.compress import compress, fidelity_check
-from friday.router import Escalation, Router
+from friday.router import Escalation, Router, cache_key
 from friday.events import FrEvent, new_event
 from friday.dic_merkle import (MerkleBatch, verify_inclusion_proof)
 from friday.anchor import (AnchorService, AnchorRecord, HmacSigner,
                            Ed25519Signer, NullTsa)
+from friday.persistence import (CorruptJournalError, JournalStore,
+                                PersistentJournal)
 from friday.skill_trace import collect_traces, export_jsonl
 
 __all__ = [
@@ -53,6 +55,7 @@ __all__ = [
     "fidelity_check",
     "Escalation",
     "Router",
+    "cache_key",
     "FrEvent",
     "new_event",
     "MerkleBatch",
@@ -62,6 +65,9 @@ __all__ = [
     "HmacSigner",
     "Ed25519Signer",
     "NullTsa",
+    "CorruptJournalError",
+    "JournalStore",
+    "PersistentJournal",
     "collect_traces",
     "export_jsonl",
     "__version__",

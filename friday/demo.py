@@ -6,6 +6,7 @@ and journal verification including a tamper demo on a copy.
 """
 
 from friday import EscalationGate, Journal, Memory, Router, SkillRegistry
+from friday.router import cache_key
 from friday.skills import builtin_skills
 
 
@@ -20,7 +21,8 @@ def main():
     gate = EscalationGate(threshold=0.8)
     router = Router(registry, memory, journal, gate)
 
-    memory.put("capital of France", "Paris", "retrieve", "0.1.0", 3600)
+    memory.put(cache_key("retrieve", "0.1.0", "capital of France"),
+               "Paris", "retrieve", "0.1.0", 3600)
     memory.put("capital of Japan", "Tokyo", "retrieve", "0.1.0", 3600)
 
     kind, payload = router.handle("capital of France", "retrieve")
@@ -33,7 +35,13 @@ def main():
     kind, payload = router.handle("quantum entanglement", "retrieve")
     print("3. low-confidence:", kind, "->", payload)
 
-    memory.put("admin contact", "boss@example.com", "retrieve", "0.1.0", 3600)
+    memory.put(cache_key("retrieve", "0.1.0", "admin contact"),
+               "boss@example.com", "retrieve", "0.1.0", 3600)
+    # Step 5's redaction demo needs a findable fragment: cache entries
+    # use hashed keys (exact lookup only) and are invisible to find(),
+    # so the fragment below is a separate, raw-keyed entry.
+    memory.put("admin contact", "boss@example.com", "retrieve",
+               "0.1.0", 3600)
     kind, payload = router.handle("admin contact", "retrieve")
     print("4. reuse of stored fragment:", kind, "->", payload)
     kind, payload = router.handle("find admin contact", "retrieve")

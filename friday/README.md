@@ -52,6 +52,7 @@ friday/
   escalation.py    confidence gate + two-sided error accounting
   gates.py         skill batteries + registry with gate enforcement
   journal.py       hash-chained append-only journal (DIC I6/I7)
+  persistence.py   durable journal file (format v1) + pilot-mode wiring
   events.py        event envelope, opaque runtime_context (DIC)
   dic_merkle.py    Merkle tree, proofs, batch builder (from DIC)
   anchor.py        close -> sign root -> timestamp -> proof rows
@@ -110,3 +111,55 @@ server, Ollama, MLX server, or any OpenAI-compatible endpoint (see
 - Detail loss: critical details (numbers, constraints, names) present
   in the full context but missing after compression — must be zero
   for kept-line classes, measured by the fidelity battery.
+
+## Pilot mode (durable journal + Ed25519)
+
+Step 2: the journal survives the process. `friday/persistence.py`
+stores one journal as an append-only JSON Lines file, format
+`friday-journal` version 1: a header line, entry lines, batch_mark
+lines (batching never rewrites an entry line), and anchor lines
+(root, signature, key_id, leaf count, TSA token). Proof rows are
+recomputed from the batch's entries, not stored.
+
+```python
+from friday import Ed25519Signer, AnchorService, NullTsa
+from friday.persistence import JournalStore, PersistentJournal
+
+store = JournalStore("pilot-journal.jsonl")
+journal, _anchors = PersistentJournal.open(store)  # or fresh
+signer = Ed25519Signer.from_private_key_file("pilot.pem")
+service = AnchorService(signer, NullTsa(), pilot_mode=True,
+                        on_anchor=store.append_anchor)
+```
+
+Pilot mode accepts only Ed25519Signer: HMAC proves integrity under a
+shared secret, not authorship, and the demo HMAC keys
+(`friday-demo`, `demo-secret`) are public in this repo, so they are
+rejected in pilot mode. Pilot mode requires the `cryptography`
+package (`pip install -e .[ed25519]`); the core stays stdlib-only.
+
+Load is strict: a corrupt line, a bad header, or a broken chain
+raises `CorruptJournalError` — a broken chain never degrades to a
+fresh journal.
+
+Honest limits: the root's DATE is still not proven — NullTsa stamps
+carry `trust="local_untrusted"` and are not RFC 3161 tokens. A real
+TSA client (for a KZ pilot, the state tsp.pki.gov.kz is the
+candidate — live-checked 2026-10-30: it granted an RFC 3161 stamp
+for a test query) is future work. Key custody here is pilot-grade (a
+PEM file, mode 0600); production needs a key manager or HSM. Three
+more limits, all by design, all open: (1) torn tail — after a power
+failure the last line may be half-written and load fails on it;
+there is no auto-repair, repair is explicit (truncate the torn final
+line and reload; the surviving chain still verifies, the torn
+entries are lost); (2) no file locking — one writer at a time, two
+processes appending to the same file will interleave and corrupt it;
+(3) root unpublished — nothing outside the file proves the tail, so
+truncating the journal's tail is undetectable until a publication
+destination is chosen (open decision).
+
+The journal file contains raw tasks and answers, including any
+personal data in them: protect it like source data. Owner-only mode
+(0600) is enforced on the file, but that is only the file's own
+mode — do not copy it to shared storage, do not send it anywhere
+unencrypted, and do not commit it.

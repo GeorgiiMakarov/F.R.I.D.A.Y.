@@ -82,8 +82,14 @@ class TestAgent(unittest.TestCase):
         self.assertEqual(len(report["escalated"]), 1)
         item = report["escalated"][0]
         self.assertEqual(item["rule_id"], "R2")
-        self.assertGreaterEqual(item["redacted"], 1)
+        # Merge: submitter/notes are never passed to the builder, so
+        # the email never reaches the context — but the two excluded
+        # lines count as withheld, so the reviewer sees the context
+        # is incomplete rather than clean.
+        self.assertEqual(item["redacted"], 2)
         self.assertNotIn("boss@example.com", item["context"])
+        self.assertNotIn("Sidorov", item["context"])
+        self.assertNotIn("notes", item["context"])
         self.assertNotIn("big_model_review", item)
 
     def test_anchor_and_proof(self):

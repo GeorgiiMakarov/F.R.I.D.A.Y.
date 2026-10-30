@@ -8,6 +8,7 @@ import unittest
 
 from friday import (EscalationGate, Journal, Memory, Router, Skill,
                     SkillRegistry, compress, fidelity_check)
+from friday.router import cache_key
 from friday.anchor import AnchorService, HmacSigner, NullTsa
 from friday.dic_merkle import (MerkleBatch, compute_leaf_hash,
                                verify_inclusion_proof)
@@ -142,7 +143,10 @@ class TestRouter(unittest.TestCase):
 
     def test_reuse(self):
         router, memory, _ = self._router()
-        memory.put("capital of France", "Paris", "retrieve", "0.1.0", 3600)
+        # Merge: the cache key is skill:version:sha256(content), not
+        # the raw task text; seeding by raw text no longer hits.
+        memory.put(cache_key("retrieve", "0.1.0", "capital of France"),
+                   "Paris", "retrieve", "0.1.0", 3600)
         kind, payload = router.handle("capital of France", "retrieve")
         self.assertEqual((kind, payload), ("reuse", "Paris"))
 

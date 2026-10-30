@@ -4,3 +4,10 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+# Pilot signing keys must never be committed (private PEM and any
+# private key file the pilot recipe writes).
+*.pem
+*.key
+# The pilot journal file from the README recipe holds raw tasks and
+# answers: never commit it either.
+pilot-journal.jsonl

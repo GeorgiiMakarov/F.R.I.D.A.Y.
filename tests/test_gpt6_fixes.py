@@ -14,9 +14,9 @@ from friday.anchor import AnchorService, HmacSigner, NullTsa
 from friday.dic_merkle import MerkleBatch, ProofStep, verify_inclusion_proof
 from friday.local_model import OpenAICompatibleLocalModel
 from friday.memory import SENSITIVE, SHAREABLE, redact_text
-from friday.router import Router
+from friday.router import Router, cache_key
 from friday.skill_trace import collect_traces
-from examples.compliance_agent.agent import ComplianceAgent, _cache_key
+from examples.compliance_agent.agent import ComplianceAgent
 from examples.compliance_agent.rules import RULES_VERSION
 
 
@@ -84,10 +84,18 @@ class TestGpt6Fixes(unittest.TestCase):
 
     def test_extra2_cache_key_covers_content_and_version(self):
         doc = _doc("D-9", 100)
-        self.assertEqual(_cache_key("D-9", doc), _cache_key("D-9", doc))
-        self.assertNotEqual(_cache_key("D-9", doc),
-                            _cache_key("D-9", _doc("D-9", 200)))
-        self.assertTrue(_cache_key("D-9", doc).endswith(RULES_VERSION))
+        key = cache_key("compliance_agent", RULES_VERSION, doc)
+        self.assertEqual(
+            key, cache_key("compliance_agent", RULES_VERSION, doc))
+        self.assertNotEqual(
+            key, cache_key("compliance_agent", RULES_VERSION,
+                           _doc("D-9", 200)))
+        self.assertNotEqual(
+            key, cache_key("compliance_agent", "9.9.9", doc))
+        # Merge format: skill:version:sha256(content); the old
+        # "review:doc_id:digest:version" format is retired.
+        self.assertTrue(
+            key.startswith("compliance_agent:" + RULES_VERSION + ":"))
 
     def test_f04_mutation_does_not_corrupt_journal(self):
         payload = {"x": [1]}

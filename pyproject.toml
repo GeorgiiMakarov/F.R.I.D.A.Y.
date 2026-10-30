@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "friday"
-version = "0.2.3"
+version = "0.3.1"
 description = "F.R.I.D.A.Y. — Federated Reasoning Interface for Delegation, Audit and Yield: a local-first delegation engine for small on-device models"
 readme = "README.md"
 requires-python = ">=3.9"
