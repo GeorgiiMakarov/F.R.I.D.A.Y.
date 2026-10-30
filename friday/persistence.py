@@ -33,7 +33,8 @@ treated as interrupted, not continued as if the write had landed.
 Honest limits, unchanged from the RAM journal: the root's DATE is not
 proven. NullTsa tokens carry trust="local_untrusted" — a local stamp
 is not an RFC 3161 token. A real TSA client (for a KZ pilot, the
-state tsp.pki.gov.kz is the verified candidate) is future work, not
+state tsp.pki.gov.kz is the candidate — live-checked 2026-10-30: it
+granted an RFC 3161 stamp for a test query) is future work, not
 in this module. Likewise, Ed25519 key custody here is pilot-grade
 (a PEM file, mode 0600); production needs a key manager or HSM.
 """

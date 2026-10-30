@@ -9,6 +9,12 @@ compute; the large model is consulted only on escalation. Delegation
 happens **under verification**: nothing is reused, compressed or sent up
 without a check that can fail.
 
+Two contours, one plumbing: the agent runs a battery of rules, the
+router routes single-skill tasks; they share memory, journal, cache
+key, redaction builder, and anchor service — only the call sites
+(get_gated, gate.decide, escalation assembly) are duplicated,
+deliberately.
+
 ## The eight skills (learned from frontier-model work)
 
 1. **Calibrated escalation.** Routing by measured confidence, with the

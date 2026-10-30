@@ -1,10 +1,12 @@
-"""Step 4 (merge): agent as a thin layer over the router.
+"""Step 4 (merge): the agent shares the router's plumbing.
 
 The note's variant, accepted with Sonnet's three conditions:
 reports cached SENSITIVE (test 7), submitter/notes never passed to
 the builder (test 2), and the demo golden defined precisely
 (test 1: stdout minus the batch/root line, journal count 24,
-event-type sequence, agent payloads).
+event-type sequence, agent payloads). Routing decisions still live
+in both places by design (see TestMergeRoutingContract): only the
+call sites are duplicated, the gate object is shared.
 """
 
 import contextlib
@@ -143,6 +145,70 @@ class TestMergeCache(unittest.TestCase):
                                       "summarise")
         self.assertEqual(kind, "reuse")
         self.assertIn("42", payload)
+
+
+class TestMergeRoutingContract(unittest.TestCase):
+    """One routing contract for both contours (merge, partial by
+    design): the call sites are duplicated (get_gated, gate.decide,
+    escalation assembly), but the gate object is shared by reference,
+    so the same confidence and threshold must route the same way in
+    the router and in the agent, and a gate failure must escalate in
+    both. A full unification through Router.handle was deliberately
+    rejected (document vs. string task, journal event vocabulary,
+    accepted golden) — this contract is what guards the duplication
+    instead.
+    """
+
+    def test_gate_shared_by_reference(self):
+        gate = EscalationGate(threshold=0.8)
+        router = Router(SkillRegistry(), Memory(), Journal(), gate)
+        agent = ComplianceAgent(router=router)
+        self.assertIs(agent.gate, gate)
+        self.assertIs(agent.gate, router.gate)
+
+    def test_same_confidence_same_route(self):
+        router, _ = _router_with_builtins()
+        for confidence, expected in ((0.95, "local"), (0.3, "escalate"),
+                                     (0.8, "local")):
+            probe = Skill("probe", "1.0",
+                          lambda task, c=confidence: ("ok", c), [])
+            router.registry.register(probe)
+            # Fresh task per case: the cache key is skill:version:
+            # sha256(task), so reusing one task would hit the first
+            # case's cached answer instead of running the probe.
+            kind, _ = router.handle("probe-%s" % confidence, "probe")
+            self.assertEqual(kind, expected)
+        # Agent side, real rules at the default threshold 0.8: R1
+        # passes at 0.95 (stays local), R2 is unsure at 0.30
+        # (escalates). No rule yields exactly 0.8, so the boundary
+        # case is router-only.
+        doc = {"doc_id": "T-R", "period": "2026-P1", "total_minor": 100,
+               "lines": [{"amount_minor": None, "evidence_ref": "E-1"}]}
+        report = ComplianceAgent().review(doc)
+        escalated = {item["rule_id"] for item in report["escalated"]}
+        self.assertNotIn("R1", escalated)
+        self.assertIn("R2", escalated)
+
+    def test_gate_failure_escalates_both(self):
+        router, _ = _router_with_builtins()
+        kind, esc = router.handle("anything", "no_such_skill")
+        self.assertEqual(kind, "escalate")
+        self.assertEqual(esc.reasons, ["gate_failed"])
+        agent = ComplianceAgent()
+        orig = agent.registry.get_gated
+
+        def failing(name):
+            return None, {"failures": ["forced gate failure"]}
+
+        agent.registry.get_gated = failing
+        try:
+            report = agent.review(DOC_OK)
+        finally:
+            agent.registry.get_gated = orig
+        self.assertTrue(report["gates_failed"])
+        self.assertTrue(all(item["reason"] == "gate_failed"
+                            for item in report["escalated"]))
+        self.assertEqual(report["verdict"], "REVIEW_REQUIRED")
 
 
 class TestMergeBackCompat(unittest.TestCase):
