@@ -13,4 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # Step 2: pilot mode needs the ed25519 extra; the core stays
+      # stdlib-only, this installs only the optional dependency.
+      - run: python3 -m pip install -e .[ed25519]
       - run: python3 -m unittest discover -s tests -v
