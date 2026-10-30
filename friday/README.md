@@ -1,6 +1,6 @@
 # F.R.I.D.A.Y.
 
-**F**ederated **R**easoning **I**nterface for **D**elegation, **A**udit and **Y**ield.
+**F**ail-closed **R**easoning **I**nterface for **D**elegation, **A**udit and **Y**ield.
 (Name expansion proposed; the engine stands on its own.)
 
 A local-first delegation engine for small on-device models (4 GB class,

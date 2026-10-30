@@ -1,6 +1,6 @@
 """Step 4 (merge): the agent shares the router's plumbing.
 
-The note's variant, accepted with Sonnet's three conditions:
+The note's variant, accepted with three review conditions:
 reports cached SENSITIVE (test 7), submitter/notes never passed to
 the builder (test 2), and the demo golden defined precisely
 (test 1: stdout minus the batch/root line, journal count 24,

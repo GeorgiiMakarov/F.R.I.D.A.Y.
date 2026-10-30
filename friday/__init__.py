@@ -1,4 +1,4 @@
-"""F.R.I.D.A.Y. — Federated Reasoning Interface for Delegation, Audit and Yield.
+"""F.R.I.D.A.Y. — Fail-closed Reasoning Interface for Delegation, Audit and Yield.
 
 Proposed expansion of the name; the engine itself is model-agnostic.
 
