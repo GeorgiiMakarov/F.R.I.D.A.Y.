@@ -1,6 +1,6 @@
 """Durable journal file (format v1, JSON Lines) + pilot-mode wiring.
 
-Step 2 of the post-review plan (Claude's order: text, then journal +
+Step 2 of the post-review plan (text, then journal +
 Ed25519): the RAM journal becomes a file a pilot can show after the
 process dies. The demo keeps its RAM journal and demo HMAC keys; this
 module is opt-in and changes no existing behaviour.

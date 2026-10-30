@@ -1,7 +1,6 @@
 """Tests for the Grok 4.7 audit fixes (v0.2.1 -> post-Grok tree).
 
-Each test pins one confirmed finding from
-~/workspace/your_files/friday-grok-audit-arbitration.md.
+Each test pins one confirmed finding.
 """
 
 import unittest

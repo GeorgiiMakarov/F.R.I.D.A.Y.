@@ -85,7 +85,7 @@ class TestMergeBuilder(unittest.TestCase):
                "lines": [{"amount_minor": None, "evidence_ref": "E-1"}],
                "submitter": "Иванов Иван Иванович",
                "notes": "позвонить завтра обсудить детали"}
-        # Sonnet's probe: the denylist does NOT catch names, so
+        # Probe: the denylist does NOT catch names, so
         # exclusion — not classification — is what protects them.
         self.assertEqual(classify_fragment("Иванов Иван Иванович"),
                          SHAREABLE)
@@ -110,7 +110,7 @@ class TestMergeBuilder(unittest.TestCase):
 
 class TestMergeCache(unittest.TestCase):
     def test_cached_fragment_survives_escalation(self):
-        # Merge regression (found by Sonnet's zip review): the hashed
+        # Merge regression (found in zip review): the hashed
         # cache key contains a 64-char token the classifier reads as
         # a key-like secret, so gluing "key: value" redacted every
         # cached fragment and left Router context empty. Lines carry

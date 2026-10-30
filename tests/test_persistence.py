@@ -1,6 +1,6 @@
 """Step 2: durable journal file, pilot-mode Ed25519, key custody.
 
-Claude's order after the text fixes: journal + Ed25519 before any
+After the text fixes: journal + Ed25519 before any
 pilot. The RAM journal becomes a file a pilot can show after the
 process dies; pilot mode signs with Ed25519 only (the demo HMAC keys
 are public in this repo and prove nothing to a third party).
