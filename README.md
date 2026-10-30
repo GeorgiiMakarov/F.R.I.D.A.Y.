@@ -10,8 +10,8 @@ delegation step happens under verification. See `friday/README.md` for
 the full design, the eight skills, and the evidence this design owes.
 
 Product direction: F.R.I.D.A.Y. is a local-first compliance pre-check
-engine for regulated companies — the core of a compliance control
-plane. It is an engine, not an AI agent: verification first — rules
+engine for regulated companies — a reference implementation of a
+compliance pre-check. It is an engine, not an AI agent: verification first — rules
 decide, a local model advises, nothing sensitive leaves the device.
 
 ## Quick start

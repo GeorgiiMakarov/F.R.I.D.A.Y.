@@ -4,7 +4,7 @@ The gate routes by a confidence number in [0, 1]. The threshold is a
 configuration value that must be SET FROM A CALIBRATION SET (measured
 accuracy per confidence bucket on the actual delegation tasks), not
 guessed. The v2 calibration rounds showed confidence *can* rank
-correctness (AUC 0.87-0.99), but thresholds measured on arithmetic do
+correctness, but thresholds measured on arithmetic do
 not transfer to retrieval, summarisation or skill selection: measure
 them on the tasks the gate will actually route.
 

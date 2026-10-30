@@ -99,7 +99,10 @@ server, Ollama, MLX server, or any OpenAI-compatible endpoint (see
 
 ## Measuring it (the evidence this design owes)
 
-- Tokens, money and latency saved against a full-context baseline.
+- Tokens: estimated_tokens_saved is an estimate, not a measurement
+  — it has no real baseline scenario (it compares a full document
+  against the escalated context, chars/4). The first measured
+  quantity is the miss rate (missed escalations on judged decisions).
 - Fidelity: agreement rate between decisions on full vs. compressed
   context (`compress.fidelity_check`), measured, not promised.
 - Escalation: rate, false-escalation rate, missed-escalation rate,
