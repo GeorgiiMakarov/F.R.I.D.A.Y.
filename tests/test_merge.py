@@ -19,6 +19,7 @@ from friday.anchor import AnchorService, Ed25519Signer, NullTsa
 from friday.local_model import StubLocalModel
 from friday.memory import SENSITIVE, SHAREABLE, classify_fragment
 from friday.router import cache_key
+from friday.schema import DEFAULT_SCHEMA, apply_schema
 from friday.skills import builtin_skills
 from examples.compliance_agent.agent import ComplianceAgent
 from examples.compliance_agent.demo import STUB_ANSWERS, main as demo_main
@@ -99,13 +100,11 @@ class TestMergeBuilder(unittest.TestCase):
         self.assertNotIn("позвонить", context)
         self.assertNotIn("submitter", context)
         self.assertNotIn("notes", context)
-        # One builder: the agent context equals the router builder's
-        # output for the same doc-field lines.
-        lines = ["doc_id: T-NAME", "period: 2026-P1",
-                 "total_minor: 100",
-                 "line 0: amount_minor=None evidence_ref=E-1"]
-        self.assertEqual(Router.build_escalation_context(lines)[0],
-                         context)
+        # Step 3: the agent context equals the schema function's output
+        # for the same doc. A missing amount renders as `missing` and
+        # is NOT counted as redaction (note a), so redacted stays 2.
+        self.assertEqual(apply_schema(doc, DEFAULT_SCHEMA)[0], context)
+        self.assertIn("amount_minor=missing", context)
 
 
 class TestMergeCache(unittest.TestCase):
@@ -114,7 +113,27 @@ class TestMergeCache(unittest.TestCase):
         # cache key contains a 64-char token the classifier reads as
         # a key-like secret, so gluing "key: value" redacted every
         # cached fragment and left Router context empty. Lines carry
-        # values only now, so the fragment survives.
+        # values only now, so the fragment survives — but only for a
+        # skill that declares its output shareable (Step 3: router
+        # answers are cached SENSITIVE by default).
+        router, _ = _router_with_builtins()
+        shareable = Skill("shareable", "1.0",
+                          lambda task: ("limit is 1000000 minor units",
+                                        0.9),
+                          [], output_shareable=True)
+        router.registry.register(shareable)
+        kind, _ = router.handle("shareable task", "shareable")
+        self.assertEqual(kind, "local")
+        kind, esc = router.handle("what is the approval limit",
+                                  "no_such_skill")
+        self.assertEqual(kind, "escalate")
+        self.assertIn("limit is 1000000 minor units",
+                      esc.compressed_context)
+        self.assertEqual(esc.redacted_count, 0)
+
+    def test_default_cached_answer_does_not_feed_context(self):
+        # Step 3: a builtin skill's local answer is cached SENSITIVE,
+        # so find() skips it and it never reaches an escalation.
         router, _ = _router_with_builtins()
         kind, _ = router.handle(
             "summarise::limit is 1000000 minor units", "summarise")
@@ -122,8 +141,8 @@ class TestMergeCache(unittest.TestCase):
         kind, esc = router.handle("what is the approval limit",
                                   "no_such_skill")
         self.assertEqual(kind, "escalate")
-        self.assertIn("limit is 1000000 minor units",
-                      esc.compressed_context)
+        self.assertNotIn("limit is 1000000 minor units",
+                         esc.compressed_context)
         self.assertEqual(esc.redacted_count, 0)
 
     def test_old_raw_text_key_unreachable(self):

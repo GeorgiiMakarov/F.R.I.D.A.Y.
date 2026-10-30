@@ -24,12 +24,17 @@ __all__ = ["Skill", "SkillGate", "SkillRegistry"]
 class Skill:
     """A named local capability with its acceptance battery."""
 
-    def __init__(self, name, version, run, tests, description=""):
+    def __init__(self, name, version, run, tests, description="",
+                 output_shareable=False):
         self.name = name
         self.version = version
         self.run = run  # callable(task) -> (answer, confidence)
         self.tests = list(tests)  # list of (test_name, callable)
         self.description = description
+        # Step 3: the router caches a skill's answer SENSITIVE unless
+        # the skill explicitly declares its output shareable, so free
+        # text cannot flow up through memory fragments by default.
+        self.output_shareable = output_shareable
 
     def check(self):
         """Run the battery. Returns (passed, failures)."""

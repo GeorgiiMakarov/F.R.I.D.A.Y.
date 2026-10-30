@@ -14,7 +14,7 @@ from friday.anchor import AnchorService, HmacSigner, NullTsa
 from friday.dic_merkle import MerkleBatch, ProofStep, verify_inclusion_proof
 from friday.local_model import OpenAICompatibleLocalModel
 from friday.memory import SENSITIVE, SHAREABLE, redact_text
-from friday.router import Router, cache_key
+from friday.router import TASK_WITHHELD, Router, cache_key
 from friday.skill_trace import collect_traces
 from examples.compliance_agent.agent import ComplianceAgent
 from examples.compliance_agent.rules import RULES_VERSION
@@ -114,7 +114,9 @@ class TestGpt6Fixes(unittest.TestCase):
         returned["payload"]["x"].append(2)
         self.assertEqual(journal.verify(), (True, None))
 
-    def test_f05_escalation_task_is_redacted(self):
+    def test_f05_escalation_task_is_withheld(self):
+        # Step 3, option A supersedes F-05 redaction: the task is
+        # withheld, not redacted — nothing of it goes up at all.
         router = Router(SkillRegistry(), Memory(), Journal(),
                         EscalationGate())
         _, esc = router.handle(
@@ -124,7 +126,7 @@ class TestGpt6Fixes(unittest.TestCase):
         self.assertNotIn("hunter2", esc.task)
         _, esc2 = router.handle("summarise the quarterly report",
                                 "no_such_skill")
-        self.assertEqual(esc2.task, "summarise the quarterly report")
+        self.assertEqual(esc2.task, TASK_WITHHELD)
 
     def test_f05_redact_text_patterns(self):
         self.assertEqual(redact_text("write to bob@x.com now"),
@@ -213,7 +215,10 @@ _SECRETS = [
     "alice@example.com",
     "bob@example.com",
     "4111 1111 1111 1111",
-    "A" * 40,
+    # Step 3: over-cap token (64 chars). A 40-char letter-first id
+    # passes the evidence_ref format by design now, so the contract
+    # test pins over-cap tokens instead; see test_schema_redaction.
+    "A" * 64,
     "hunter2",
 ]
 
@@ -268,7 +273,7 @@ class TestEscalationContract(unittest.TestCase):
     def test_agent_escalation_contract(self):
         doc = {"doc_id": "S-1", "period": "2026-P1",
                "total_minor": 100,
-               "lines": [{"evidence_ref": "A" * 40}],
+               "lines": [{"evidence_ref": "A" * 64}],
                "submitter": "alice@example.com",
                "notes": "call bob@example.com, card 4111 1111 1111 1111"}
         report = ComplianceAgent().review(doc)

@@ -17,15 +17,15 @@ agent a thin layer over the router would overstate the merge.
   partial coverage is visible at report level, not only inside the
   escalated list (Grok audit, mixed-gate case);
 - upward payloads carry nothing sensitive: escalation items hold a
-  redacted detail, a shareable-only context, fixed reasons and a
-  redacted count (pass-2 contract; enforced by TestEscalationContract);
+  redacted detail, a schema-filtered context, fixed reasons, a
+  redacted count, the schema version and the names of withheld fields
+  (pass-2 contract; enforced by TestEscalationContract);
 - every rule check is journaled; the verdict is journaled;
 - findings below the escalation threshold escalate with a context
-  built by the router's single builder from document-field lines
-  WITHOUT submitter/notes (excluded until Step 3: the rules going up
-  do not need them, and the denylist does not catch names). The
-  redacted count includes the excluded lines, so the reviewer sees
-  the context is incomplete, not clean;
+  built by the pack schema (Step 3) from document fields: only listed
+  fields go up, submitter/notes/approver never do, and the redacted
+  count includes the withheld fields, so the reviewer sees the
+  context is incomplete, not clean;
 - a second review of the same doc is a reuse hit, not a re-check;
   reports are cached with sensitivity=SENSITIVE, so the router's
   find() never mixes one document's report into another document's
@@ -45,6 +45,7 @@ from friday import EscalationGate, Journal, Memory, Skill, SkillRegistry
 from friday.anchor import AnchorService, HmacSigner, NullTsa
 from friday.memory import SENSITIVE, redact_text
 from friday.router import Router, cache_key
+from friday.schema import DEFAULT_SCHEMA, PackSchema, apply_schema
 from examples.compliance_agent.rules import RULES, RULES_VERSION
 
 __all__ = ["ComplianceAgent"]
@@ -122,7 +123,8 @@ class ComplianceAgent:
     """
 
     def __init__(self, memory=None, journal=None, threshold=0.8,
-                 local_model=None, router=None, anchor_service=None):
+                 local_model=None, router=None, anchor_service=None,
+                 schema_config=None):
         if router is None:
             registry = SkillRegistry()
             router = Router(registry,
@@ -134,6 +136,15 @@ class ComplianceAgent:
         self.journal = router.journal
         self.registry = router.registry
         self.gate = router.gate
+        # Step 3: the pack schema is the allowlist for upward payloads.
+        # A non-default config is journaled at load, before any
+        # review, so a widening is in the append-only journal first;
+        # the default schema adds no event (demo journal stays 24).
+        if schema_config is not None:
+            self.schema = PackSchema.from_config(schema_config)
+            self.journal.append("schema", self.schema.journal_record())
+        else:
+            self.schema = DEFAULT_SCHEMA
         for rule_id, description, fn in RULES:
             self.registry.register(_rule_skill(rule_id, description, fn))
         service = (anchor_service or router.anchor_service
@@ -186,34 +197,23 @@ class ComplianceAgent:
                 "confidence": finding["confidence"],
             })
             if self.gate.decide(finding["confidence"]) == "escalate":
-                # Single builder (merge): document-field lines WITHOUT
-                # submitter/notes — the rules going up do not need
-                # them, and the denylist does not catch names, so
-                # passing them would leak names until Step 3.
-                lines = ["doc_id: %s" % (doc.get("doc_id"),),
-                         "period: %s" % (doc.get("period"),),
-                         "total_minor: %s" % (doc.get("total_minor"),)]
-                for idx, line in enumerate(doc.get("lines") or []):
-                    if isinstance(line, dict):
-                        lines.append(
-                            "line %d: amount_minor=%s evidence_ref=%s"
-                            % (idx, line.get("amount_minor"),
-                               line.get("evidence_ref")))
-                context, redacted = Router.build_escalation_context(lines)
-                # Excluded fields count as withheld (merge fix): the
-                # reviewer must see that the context is incomplete.
-                # submitter/notes never reach the builder (until
-                # Step 3), so without this the count would read 0
-                # on DOC-003 even though two lines were withheld.
-                redacted += sum(1 for k in ("submitter", "notes")
-                                if doc.get(k) is not None)
+                # Step 3 (schema redaction): the agent no longer builds
+                # string lines for the router builder. Fields pass
+                # through the pack schema; only listed fields reach
+                # the context, never-fields and unknown fields are
+                # withheld and counted, and the withheld NAMES (schema
+                # labels, never values) ride along so the reviewer
+                # sees exactly what is missing.
+                context, redacted, excluded = apply_schema(doc,
+                                                           self.schema)
                 # Detail is part of the upward payload: redact it the
                 # same way as the task, so a present or future rule
                 # embedding raw document values cannot leak through it.
                 detail = redact_text(finding["detail"])
                 item = {"rule_id": rule_id, "reason": "low_confidence",
                         "context": context, "redacted": redacted,
-                        "detail": detail}
+                        "detail": detail, "schema": self.schema.version,
+                        "excluded": excluded}
                 if self.local_model is not None:
                     prompt = (
                         "Compliance finding %s: %s\n"
@@ -234,7 +234,8 @@ class ComplianceAgent:
                 escalated.append(item)
                 self.journal.append("escalate", {
                     "doc_id": doc_id, "rule_id": rule_id,
-                    "redacted": redacted})
+                    "redacted": redacted, "schema": self.schema.version,
+                    "excluded": excluded})
 
         verdict = "PASS"
         if any(f["status"] in ("flag", "unsure") for f in findings):

@@ -12,9 +12,10 @@ Request path, in order:
 3. Escalate: anything else — gate failure, low confidence, or no
    skill — returns an Escalation carrying a compressed context of
    SHAREABLE fragments only. Sensitive fragments are redacted, never
-   sent up. The task inside the Escalation carries sensitive patterns
-   redacted (F-05); the journal keeps the raw task for local audit.
-   Journal event: "escalate".
+   sent up. The task inside the Escalation is withheld (Step 3,
+   option A): the reviewer sees reasons, the redacted count and the
+   fragment context, never the task text; the journal keeps the raw
+   task for local audit. Journal event: "escalate".
 
 The router never invents a confidence: the skill returns one. A skill
 that cannot estimate its confidence must return 0.0, which escalates.
@@ -35,9 +36,14 @@ import hashlib
 import json
 
 from friday.compress import compress
-from friday.memory import SHAREABLE, classify_fragment, redact_text
+from friday.memory import (SENSITIVE, SHAREABLE, classify_fragment,
+                           redact_text)
 
-__all__ = ["Escalation", "Router", "cache_key"]
+__all__ = ["Escalation", "Router", "TASK_WITHHELD", "cache_key"]
+
+# Step 3, option A: the task text is never sent up. This marker stands
+# in its place so a withheld task reads as withheld, not as empty.
+TASK_WITHHELD = "[task withheld]"
 
 
 def cache_key(skill, version, content):
@@ -86,15 +92,14 @@ class Router:
 
     @staticmethod
     def build_escalation_context(lines):
-        """Single escalation-context builder (merge decision).
+        """Single string-line escalation-context builder (merge decision).
 
-        Takes pre-built lines — Router passes fragment values, the
-        agent passes document-field lines WITHOUT submitter/notes
-        (excluded until Step 3: the rules going up do not need them,
-        and the denylist does not catch names) — and returns
-        (compressed_shareable, redacted_count). The denylist
-        classifier is the single redaction decision point; Step 3
-        replaces it with schema redaction in this one place.
+        Takes pre-built lines — Router passes fragment values — and
+        returns (compressed_shareable, redacted_count). The denylist
+        classifier is the redaction decision point for these lines.
+        Step 3 replaced it with schema redaction for the agent path
+        (friday.schema): the agent no longer builds string lines, so
+        this builder now serves Router fragments only.
         """
         shareable = []
         redacted = 0
@@ -126,8 +131,17 @@ class Router:
         answer, confidence = skill.run(task)
         route = self.gate.decide(confidence)
         if route == "local":
+            # Step 3: a skill's answer is cached SENSITIVE unless the
+            # skill explicitly declares its output shareable, so free
+            # text cannot flow up through memory fragments by default.
+            # Reuse still works: direct key access ignores sensitivity.
             self.memory.put(key, answer, skill.name, skill.version,
-                            ttl_s=3600)
+                            ttl_s=3600,
+                            sensitivity=(SHAREABLE
+                                         if getattr(skill,
+                                                    "output_shareable",
+                                                    False)
+                                         else SENSITIVE))
             self.journal.append("local_answer", {
                 "task": task, "skill": skill.name,
                 "confidence": confidence, "answer": answer,
@@ -147,9 +161,10 @@ class Router:
         compressed, redacted = self.build_escalation_context(lines)
         self.journal.append("escalate", {
             "task": task, "reasons": reasons, "detail": detail,
-            "redacted": redacted,
+            "redacted": redacted, "task_withheld": True,
         })
-        # The Escalation is the upward boundary: its task is redacted.
-        # The journal entry above keeps the raw task for local audit.
-        return "escalate", Escalation(redact_text(task), compressed,
+        # The Escalation is the upward boundary: its task is withheld
+        # (Step 3, option A), not redacted. The journal entry above
+        # keeps the raw task for local audit.
+        return "escalate", Escalation(TASK_WITHHELD, compressed,
                                       reasons, redacted)

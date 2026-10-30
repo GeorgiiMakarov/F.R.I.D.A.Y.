@@ -11,9 +11,11 @@ without a check that can fail.
 
 Two contours, one plumbing: the agent runs a battery of rules, the
 router routes single-skill tasks; they share memory, journal, cache
-key, redaction builder, and anchor service — only the call sites
+key, and anchor service — only the call sites
 (get_gated, gate.decide, escalation assembly) are duplicated,
-deliberately.
+deliberately. Redaction split in Step 3: the agent path filters
+document fields through the pack schema (allowlist), the router path
+still filters fragment strings through the denylist builder.
 
 ## The eight skills (learned from frontier-model work)
 
@@ -38,6 +40,23 @@ deliberately.
 8. **Skill back-transfer (offline).** Reviewed journaled traces become
    training pairs for adapters; an adapter ships as a new skill version
    behind the same gate. The runtime never trains on live traffic.
+
+Step 3 (schema redaction): the agent path sends up only fields listed
+in the pack schema (doc_id, period, total_minor, line amounts and
+evidence_refs by default); submitter, notes and approver never go up,
+and no pack config can open them. `evidence_ref` is allowed by format
+(UUID or a letter-first id up to 40 chars), minus 9+ digit runs and
+IBAN-shaped strings, not by sensitivity regex. Withheld fields are
+reported by known schema labels plus a fixed `unknown_field` label —
+unknown document keys are never named, because the key text itself
+may be user data. Honest residual: a spaceless name (JohnDoe) in
+`evidence_ref` passes the format — that is a pack-author error, not
+protection. Same for a dash-split phone (INV-7900-000-00-01): no
+9-digit run accumulates, and a total digit limit would reject honest
+date-bearing refs — again a pack-author error. The router path withholds the task text entirely
+(option A) and caches skill answers SENSITIVE unless the skill
+declares its output shareable. The journal records withheld field
+names and the schema version — counts, never values.
 
 ## What is deliberately NOT here
 
@@ -65,6 +84,7 @@ friday/
   memory.py        fresh-only store + fragment classification
   compress.py      extractive compression + fidelity battery
   router.py        reuse -> local skill -> escalation
+  schema.py        pack schema: allowlist for upward payloads (Step 3)
   local_model.py   model adapter interface + HTTP adapter + stub
   skills.py        built-in skills: retrieve, summarise, verify
   skill_trace.py   offline back-transfer export (JSONL)
