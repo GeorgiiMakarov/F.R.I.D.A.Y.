@@ -64,6 +64,13 @@ def _validate_base_url(base_url, allow_remote, allowed_hosts):
     """
     import ipaddress
     from urllib.parse import urlparse
+    # Normalize: the adapter appends "/v1/chat/completions" itself,
+    # so a trailing "/v1" in the input would double it
+    # (".../v1/v1/chat/completions" -> 404 on real servers). Both
+    # forms are accepted; repeated trailing segments are stripped.
+    base_url = base_url.rstrip("/")
+    while base_url.lower().endswith("/v1"):
+        base_url = base_url[:-3].rstrip("/")
     parsed = urlparse(base_url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError("base_url scheme must be http or https")
@@ -116,7 +123,10 @@ class StubLocalModel(LocalModel):
 
 
 class OpenAICompatibleLocalModel(LocalModel):
-    """HTTP adapter for a local OpenAI-compatible server."""
+    """HTTP adapter for a local OpenAI-compatible server.
+
+    base_url may be given with or without a trailing "/v1" — it is
+    stripped, the adapter always appends "/v1/chat/completions"."""
 
     def __init__(self, base_url, model, timeout_s=60,
                  want_logprobs=True, allow_remote=False,

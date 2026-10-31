@@ -141,5 +141,43 @@ class TestAgentModelLoop(unittest.TestCase):
         self.assertNotIn("model_review", report["escalated"][0])
 
 
+class _PathHandler(http.server.BaseHTTPRequestHandler):
+    paths = []
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        self.rfile.read(length)
+        _PathHandler.paths.append(self.path)
+        data = json.dumps({"choices": [{"message": {"content": "ok"},
+                                       "finish_reason": "stop"}]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+class TestBaseUrlNormalization(unittest.TestCase):
+    def test_both_forms_hit_v1_chat_completions(self):
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0),
+                                                 _PathHandler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        _PathHandler.paths.clear()
+        for base in ("http://127.0.0.1:%d" % port,
+                     "http://127.0.0.1:%d/v1" % port,
+                     "http://127.0.0.1:%d/v1/" % port):
+            model = OpenAICompatibleLocalModel(base, "m")
+            text, _conf, _source = model.generate("hello", budget=8)
+            self.assertEqual(text, "ok")
+        self.assertEqual(_PathHandler.paths,
+                         ["/v1/chat/completions"] * 3)
+
+
 if __name__ == "__main__":
     unittest.main()

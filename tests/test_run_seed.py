@@ -16,6 +16,7 @@ from examples.compliance_agent.run_seed import (
     check_test_once,
     load_rows,
     preflight,
+    preflight_failure_message,
     run_seed,
     seed_version,
 )
@@ -86,6 +87,19 @@ class _LengthHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
+class _NotFoundHandler(http.server.BaseHTTPRequestHandler):
+    """Every request is a 404 (the /v1/v1 doubling symptom)."""
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        self.rfile.read(length)
+        self.send_response(404)
+        self.end_headers()
+
+
 class TestPreflight(unittest.TestCase):
     def _flight(self, handler_cls):
         server, port = _start(handler_cls)
@@ -116,6 +130,22 @@ class TestPreflight(unittest.TestCase):
         self.assertEqual([p["error"] for p in flight["probes"]],
                          ["ValueError", "ValueError"])
 
+    def test_404_message_names_code_not_no_signal(self):
+        flight = self._flight(_NotFoundHandler)
+        self.assertFalse(flight["ok"])
+        message = preflight_failure_message(flight)
+        self.assertIn("404", message)
+        self.assertIn("base-url", message)
+        self.assertIn("server is running", message)
+        self.assertNotIn("no usable confidence source", message)
+
+    def test_plain_message_reports_response_received(self):
+        flight = self._flight(_PlainHandler)
+        message = preflight_failure_message(flight)
+        self.assertIn("response received", message)
+        self.assertIn("no usable confidence source", message)
+        self.assertNotIn("request failed", message)
+
 
 class TestOncePerVersion(unittest.TestCase):
     def test_prior_test_record_refuses(self):
@@ -142,6 +172,17 @@ class TestRunSeed(unittest.TestCase):
         self.assertEqual(record["totals"]["discarded_generations"], 0)
         self.assertEqual(record["model"], "stub")
         self.assertEqual(record["seed_version"], "1")
+        dev007 = [r for r in record["results"]
+                  if r["id"] == "DEV-007"][0]
+        self.assertEqual(len(dev007["model_reviews"]), 1)
+        review = dev007["model_reviews"][0]
+        self.assertEqual(review["rule_id"], "R2")
+        self.assertEqual(review["confidence"], 0.0)
+        self.assertEqual(review["source"], "stub")
+        self.assertEqual(review["gate"], "escalate")
+        self.assertEqual(review["answer_len"],
+                         len("no stub answer for this prompt"))
+        self.assertEqual(record["totals"]["model_reviews"], 6)
 
     def test_discarded_generation_counted(self):
         class RaisingOnDoc:

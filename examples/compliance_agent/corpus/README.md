@@ -73,3 +73,11 @@ The model run on this seed (3B–4B, Georgiy's hardware, procedure
 ollama + run_with_model) is allowed only after Block A items
 A1, A3, A4, A5, A6. The run record fixes model, quantization, prompt
 and temperature, plus date and seed version.
+
+Calibration note: calibration cannot be computed from this seed.
+The model judgment is an open prompt with no ground truth — for
+rules' unsure cases the truth is undefined (unsure means the rule
+could not decide, not a label). The run checks the pipeline:
+preflight, truncation, confidence sources, and the confidence
+distribution. Calibration needs a closed question with a ground
+truth — a separate step, not done here.

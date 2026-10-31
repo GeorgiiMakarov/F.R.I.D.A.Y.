@@ -3,21 +3,31 @@
 Unlike run_with_model.py (the three demo documents), this script
 runs a whole seed split (dev or test) and writes a run record:
 model, quantization, prompt, temperature, seed version,
-per-document outcomes and the number of discarded generations.
+per-document outcomes, per model judgment (rule_id, confidence,
+source, gate decision, answer length) and the number of discarded
+generations.
 
 The run starts with a preflight on the configured server: a fixed
 canonical prompt is sent twice — once with logprobs requested, once
 without — and finish_reason must be "stop" (enforced by the adapter,
 A3). The confidence source of each probe is recorded. If every
-probe reports a source that cannot carry calibration (none, stub,
-unattributed — i.e. the server provides no confidence signal at
-all), the runner stops with a clear message and writes NO record:
-without a confidence source the run cannot serve as a calibration
-signal, so it must not be recorded as one.
+probe reports a source that cannot carry a confidence distribution
+(none, stub, unattributed — i.e. the server provides no confidence
+signal at all), the runner stops with a clear message and writes
+NO record: without a confidence source even the distribution the
+run exists to check would be invisible (all confidences 0.0).
 
 The test split runs once per seed version: if a test record for
 this seed version already exists in the output directory, the
 runner refuses. The dev split has no such restriction.
+
+Honest limit: calibration cannot be computed from this seed. The
+model judgment is an open prompt with no ground truth — for rules'
+unsure cases the truth is undefined (unsure means the rule could
+not decide, not a label). This run checks the pipeline: preflight,
+truncation (A3), confidence sources, and the confidence
+distribution. Calibration needs a closed question with a ground
+truth — a separate step, not done here.
 
 Runs only on the operator's hardware (Ollama / llama.cpp server).
 Never substitute a cloud model or simulate a run.
@@ -26,8 +36,11 @@ Example:
     ollama serve
     ollama pull qwen2.5:3b
     python3 -m examples.compliance_agent.run_seed \
-        --base-url http://localhost:11434/v1 --model qwen2.5:3b \
+        --base-url http://localhost:11434 --model qwen2.5:3b \
         --split dev --quantization Q4_K_M
+
+base-url may be given with or without a trailing "/v1" — the
+adapter strips it (it appends "/v1/chat/completions" itself).
 """
 
 import argparse
@@ -36,6 +49,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -116,10 +130,46 @@ def preflight(make_adapter):
             probes.append({"want_logprobs": want, "text": text,
                            "confidence": confidence, "source": source})
         except Exception as exc:  # noqa: BLE001 - recorded, not hidden
-            probes.append({"want_logprobs": want,
-                           "error": type(exc).__name__})
+            entry = {"want_logprobs": want,
+                     "error": type(exc).__name__}
+            if isinstance(exc, urllib.error.HTTPError):
+                entry["code"] = exc.code
+            probes.append(entry)
     ok = any(p.get("source") in CALIBRATION_SOURCES for p in probes)
     return {"prompt": PREFLIGHT_PROMPT, "probes": probes, "ok": ok}
+
+
+def preflight_failure_message(flight):
+    """Human-readable preflight failure, or None when ok.
+
+    Two cases are kept apart: a failed request (transport or HTTP
+    error — the message names the type and code and hints at
+    base-url and the server) versus a received response with no
+    usable confidence source.
+    """
+    if flight["ok"]:
+        return None
+    errors = [p for p in flight["probes"] if "error" in p]
+    if errors:
+        detail = []
+        for probe in errors:
+            if "code" in probe:
+                label = "%s %s" % (probe["error"], probe["code"])
+            else:
+                label = probe["error"]
+            if label not in detail:
+                detail.append(label)
+        return ("PREFLIGHT FAILED: request failed (%s). Check "
+                "--base-url (with or without a trailing /v1) and "
+                "that the server is running." % ", ".join(detail))
+    sources = [p.get("source", "?") for p in flight["probes"]]
+    return ("PREFLIGHT FAILED: response received, but every probe "
+            "reported no usable confidence source (%s). The server "
+            "provides no confidence signal (no logprobs, no explicit "
+            "confidence). The run is not recorded: without a "
+            "confidence source even the confidence distribution — "
+            "the point of the run — would be invisible (all "
+            "confidences 0.0)." % ", ".join(sources))
 
 
 def check_test_once(out_dir, version):
@@ -172,6 +222,7 @@ def run_seed(adapter, rows, meta):
     discarded = 0
     matched = 0
     escalated_decisions = 0
+    review_decisions = 0
     for row in rows:
         agent = ComplianceAgent(local_model=adapter)
         try:
@@ -184,10 +235,23 @@ def run_seed(adapter, rows, meta):
         match, details = _compare(row, report)
         matched += 1 if match else 0
         escalated_decisions += len(details["escalated"])
-        sources = [e["model_review"]["source"]
-                   for e in report["escalated"] if "model_review" in e]
+        # Per model judgment: the confidence distribution is the
+        # point of the run, so the record carries confidence, gate
+        # decision and answer length — not just the source.
+        reviews = []
+        for item in report["escalated"]:
+            review = item.get("model_review")
+            if review is not None:
+                reviews.append({
+                    "rule_id": item["rule_id"],
+                    "confidence": review["confidence"],
+                    "source": review["source"],
+                    "gate": review["gate"],
+                    "answer_len": len(review["text"]),
+                })
+        review_decisions += len(reviews)
         results.append({"id": row["id"], "discarded": False,
-                        "match": match, "model_review_sources": sources,
+                        "match": match, "model_reviews": reviews,
                         **details})
     record = dict(meta)
     record["results"] = results
@@ -197,11 +261,14 @@ def run_seed(adapter, rows, meta):
         "mismatched": len(rows) - matched - discarded,
         "discarded_generations": discarded,
         "escalated_decisions": escalated_decisions,
+        "model_reviews": review_decisions,
     }
     record["notes"] = [
         "Seed run (pipeline check), not calibration: the seed does "
         "not calibrate the threshold; miss rate from it is not "
-        "reported.",
+        "reported. Calibration is impossible on this seed: the "
+        "model judgment is an open prompt with no ground truth, "
+        "and for unsure rules the truth is undefined.",
     ]
     return record
 
@@ -226,7 +293,7 @@ def write_record(out_dir, version, split, model, record):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Regression seed run against a real local model.")
-    parser.add_argument("--base-url", default="http://localhost:11434/v1")
+    parser.add_argument("--base-url", default="http://localhost:11434")
     parser.add_argument("--model", default="qwen2.5:3b")
     parser.add_argument("--split", choices=("dev", "test"), default="dev")
     parser.add_argument("--quantization", default="unknown",
@@ -252,18 +319,12 @@ def main(argv=None):
     try:
         flight = preflight(make_adapter)
     except Exception as exc:  # noqa: BLE001 - preflight must not crash
-        print("PREFLIGHT FAILED: %s: %s"
-              % (type(exc).__name__, exc), file=sys.stderr)
+        print("PREFLIGHT FAILED: could not configure the adapter: "
+              "%s: %s" % (type(exc).__name__, exc), file=sys.stderr)
         return 2
-    if not flight["ok"]:
-        sources = [p.get("source", p.get("error", "?"))
-                   for p in flight["probes"]]
-        print("PREFLIGHT FAILED: every probe reported no usable "
-              "confidence source (%s). The server provides no "
-              "confidence signal (no logprobs, no explicit "
-              "confidence). The run is not recorded: without a "
-              "confidence source it cannot serve as a calibration "
-              "signal." % ", ".join(sources), file=sys.stderr)
+    message = preflight_failure_message(flight)
+    if message is not None:
+        print(message, file=sys.stderr)
         return 2
 
     if args.split == "test":
