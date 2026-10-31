@@ -193,7 +193,15 @@ destination is chosen (open decision); (4) Router.handle has no
 terminal event on failure — the A4 exactly-one-terminal-event
 invariant covers agent review only — and the router's local_answer
 journal payload carries confidence but no confidence source (A6
-covers the agent's model_review, not the router path).
+covers the agent's model_review, not the router path); (5) the
+client copy's signature is the operator attesting with the same
+key, not independent proof of volume — one keyholder can sign any
+counts, so volume is confirmed only to a client checking their own
+copy; the epoch DATE is not proven until the epoch stamp verifies
+up the chain to the NUCA CA (stamps are reported
+absent/present_unverified, no TSA client yet); verifying a record
+needs the ed25519 extra (`pip install -e .[ed25519]`), the stdlib
+core cannot check Ed25519 signatures.
 
 The journal file contains raw tasks and answers, including any
 personal data in them: protect it like source data. Owner-only mode
