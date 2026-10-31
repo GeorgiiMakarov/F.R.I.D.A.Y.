@@ -68,7 +68,10 @@ def fidelity_check(decide, cases, compress_fn=compress):
     """
     cases = list(cases)
     if not cases:
-        return 1.0, []
+        # A5: an empty case set must not report perfect agreement.
+        # A scheme ships only with a measured rate, never with 1.0
+        # on zero cases.
+        raise ValueError("fidelity_check needs at least one case")
     disagreements = []
     for idx, (context, case) in enumerate(cases):
         full = decide(context, case)

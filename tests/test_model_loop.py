@@ -43,6 +43,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             payload = {
                 "choices": [{
                     "message": {"content": "judged"},
+                    "finish_reason": "stop",
                     "logprobs": {"content": [
                         {"logprob": -0.1},
                         {"logprob": -0.2},
@@ -52,11 +53,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             }
         elif _Handler.mode == "confidence":
             payload = {
-                "choices": [{"message": {"content": "judged"}}],
+                "choices": [{"message": {"content": "judged"},
+                             "finish_reason": "stop"}],
                 "confidence": 0.7,
             }
         else:
-            payload = {"choices": [{"message": {"content": "judged"}}]}
+            payload = {"choices": [{"message": {"content": "judged"},
+                                   "finish_reason": "stop"}]}
         data = json.dumps(payload).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -86,26 +89,30 @@ class TestAdapterConfidence(unittest.TestCase):
 
     def test_logprob_mean_confidence(self):
         _Handler.mode = "logprobs"
-        text, conf = self._model().generate("hello", budget=64)
+        text, conf, source = self._model().generate("hello", budget=64)
         self.assertEqual(text, "judged")
         self.assertAlmostEqual(conf, math.exp(-0.2), places=6)
+        self.assertEqual(source, "logprobs")
 
     def test_explicit_confidence_field_wins(self):
         _Handler.mode = "confidence"
-        _text, conf = self._model().generate("hello", budget=64)
+        _text, conf, source = self._model().generate("hello", budget=64)
         self.assertEqual(conf, 0.7)
+        self.assertEqual(source, "explicit")
 
     def test_no_signal_means_escalate(self):
         _Handler.mode = "plain"
-        _text, conf = self._model().generate("hello", budget=64)
+        _text, conf, source = self._model().generate("hello", budget=64)
         self.assertEqual(conf, 0.0)
+        self.assertEqual(source, "none")
 
     def test_strict_server_retries_without_logprobs(self):
         _Handler.mode = "strict"
         _Handler.bodies = []
-        text, conf = self._model().generate("hello", budget=64)
+        text, conf, source = self._model().generate("hello", budget=64)
         self.assertEqual(text, "judged")
         self.assertEqual(conf, 0.0)
+        self.assertEqual(source, "none")
         self.assertEqual(len(_Handler.bodies), 2)
         self.assertTrue(_Handler.bodies[0].get("logprobs"))
         self.assertNotIn("logprobs", _Handler.bodies[1])

@@ -55,7 +55,14 @@ protection. Same for a dash-split phone (INV-7900-000-00-01): no
 9-digit run accumulates, and a total digit limit would reject honest
 date-bearing refs — again a pack-author error. The router path withholds the task text entirely
 (option A) and caches skill answers SENSITIVE unless the skill
-declares its output shareable. The journal records withheld field
+declares its output shareable.
+
+Regression seed (examples/compliance_agent/corpus/): synthetic
+documents with fixed expected verdicts, split into dev (iteration)
+and test (held out). The seed guards the rules against regressions;
+it does not calibrate the threshold. The dev/test split guards
+against prompt fitting, but not against the synthetic author's
+blind spots. The journal records withheld field
 names and the schema version — counts, never values.
 
 ## What is deliberately NOT here

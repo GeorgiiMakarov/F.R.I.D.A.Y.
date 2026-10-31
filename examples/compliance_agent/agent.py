@@ -162,8 +162,29 @@ class ComplianceAgent:
         self.up_chars = 0
 
     def review(self, doc):
-        """Review one document. Returns a report dict."""
-        doc_id = doc.get("doc_id", "?")
+        """Review one document. Returns a report dict.
+
+        Terminal-event invariant (A4): every call ends with exactly
+        one terminal journal event — "verdict" (completed), "reuse"
+        (cached) or "error" (raised). On error the event is written
+        and the exception re-raised, never swallowed; a failure to
+        write the event must not mask the original error. The error
+        event carries doc_id and the exception type only — never the
+        message verbatim (it may carry document fragments). Which
+        rule failed is inferable from the preceding rule_check events.
+        """
+        doc_id = doc.get("doc_id", "?") if isinstance(doc, dict) else "?"
+        try:
+            return self._review_inner(doc, doc_id)
+        except Exception as exc:
+            try:
+                self.journal.append("error", {
+                    "doc_id": doc_id, "error": type(exc).__name__})
+            except Exception:
+                pass  # journal failure must not mask the original error
+            raise
+
+    def _review_inner(self, doc, doc_id):
         key = cache_key("compliance_agent", RULES_VERSION, doc)
         cached = self.memory.get(key)
         if cached is not None:
@@ -221,14 +242,26 @@ class ComplianceAgent:
                         "Give a short judgment: what should the "
                         "reviewer do next?"
                         % (rule_id, detail, context))
-                    text, confidence = self.local_model.generate(
-                        prompt, budget=512)
+                    result = self.local_model.generate(prompt, budget=512)
+                    parts = tuple(result)
+                    if len(parts) == 3:
+                        text, confidence, source = parts
+                    elif len(parts) == 2:
+                        # Old models return no source (A6): accept
+                        # them as "unattributed", never crash.
+                        text, confidence = parts
+                        source = "unattributed"
+                    else:
+                        raise ValueError(
+                            "local model must return (text, confidence) "
+                            "or (text, confidence, source)")
                     item["model_review"] = {
                         "text": text, "confidence": confidence,
+                        "source": source,
                         "gate": self.gate.decide(confidence)}
                     self.journal.append("model_review", {
                         "doc_id": doc_id, "rule_id": rule_id,
-                        "confidence": confidence})
+                        "confidence": confidence, "source": source})
                 if self.big_model_review is not None:
                     item["big_model_review"] = self.big_model_review(item)
                 escalated.append(item)

@@ -151,27 +151,31 @@ class TestGpt6Fixes(unittest.TestCase):
 
     def test_f07_invalid_confidence_becomes_zero(self):
         for bad in (5.0, float("nan"), "not-a-number"):
-            server = _serve({"choices": [{"message": {"content": "ans"}}],
+            server = _serve({"choices": [{"message": {"content": "ans"},
+                                        "finish_reason": "stop"}],
                              "confidence": bad})
             try:
                 model = OpenAICompatibleLocalModel(
                     "http://127.0.0.1:%d" % server.server_address[1],
                     "stub")
-                _, confidence = model.generate("q", budget=8)
+                _, confidence, source = model.generate("q", budget=8)
             finally:
                 server.shutdown()
                 server.server_close()
             self.assertEqual(confidence, 0.0)
-        server = _serve({"choices": [{"message": {"content": "ans"}}],
+            self.assertEqual(source, "none")
+        server = _serve({"choices": [{"message": {"content": "ans"},
+                                    "finish_reason": "stop"}],
                          "confidence": 0.9})
         try:
             model = OpenAICompatibleLocalModel(
                 "http://127.0.0.1:%d" % server.server_address[1], "stub")
-            _, confidence = model.generate("q", budget=8)
+            _, confidence, source = model.generate("q", budget=8)
         finally:
             server.shutdown()
             server.server_close()
         self.assertEqual(confidence, 0.9)
+        self.assertEqual(source, "explicit")
 
     def test_f08_traces_carry_pending_approval(self):
         journal = Journal()
