@@ -11,3 +11,6 @@ build/
 # The pilot journal file from the README recipe holds raw tasks and
 # answers: never commit it either.
 pilot-journal.jsonl
+# Seed run records (run_seed.py) are local evidence from the
+# operator's hardware, not repo content: never commit them.
+examples/compliance_agent/runs/

@@ -52,7 +52,8 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 def _validate_base_url(base_url, allow_remote, allowed_hosts):
     """A1: allow loopback by default; a remote host only when
-    explicitly enabled AND on the allowlist.
+    explicitly enabled AND on the allowlist AND over https (a
+    prompt with context must not travel in plaintext).
 
     The check parses the host (urlparse hostname strips userinfo and
     ports) and compares it — never a substring of the URL string, so
@@ -81,6 +82,11 @@ def _validate_base_url(base_url, allow_remote, allowed_hosts):
                 "base_url host %r is unspecified, not a target" % host)
         if addr.is_loopback:
             return base_url.rstrip("/")
+    if parsed.scheme != "https":
+        # A remote prompt carries document context: plaintext http
+        # would expose it on the wire, allowlist or not.
+        raise ValueError(
+            "remote base_url %r must use https" % (base_url,))
     if allow_remote and allowed_hosts:
         if host in {h.lower() for h in allowed_hosts}:
             return base_url.rstrip("/")
@@ -114,12 +120,13 @@ class OpenAICompatibleLocalModel(LocalModel):
 
     def __init__(self, base_url, model, timeout_s=60,
                  want_logprobs=True, allow_remote=False,
-                 allowed_hosts=None):
+                 allowed_hosts=None, temperature=0.0):
         self.base_url = _validate_base_url(base_url, allow_remote,
                                            allowed_hosts)
         self.model = model
         self.timeout_s = timeout_s
         self.want_logprobs = want_logprobs
+        self.temperature = temperature
         # No redirect handler except the refusing one (A1): the
         # opener is built explicitly so no default redirect handler
         # can move a request to an unapproved host.
@@ -149,7 +156,7 @@ class OpenAICompatibleLocalModel(LocalModel):
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": budget,
-            "temperature": 0.0,
+            "temperature": self.temperature,
         }
         if self.want_logprobs:
             body["logprobs"] = True

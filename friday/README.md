@@ -180,8 +180,8 @@ carry `trust="local_untrusted"` and are not RFC 3161 tokens. A real
 TSA client (for a KZ pilot, the state tsp.pki.gov.kz is the
 candidate — live-checked 2026-10-30: it granted an RFC 3161 stamp
 for a test query) is future work. Key custody here is pilot-grade (a
-PEM file, mode 0600); production needs a key manager or HSM. Three
-more limits, all by design, all open: (1) torn tail — after a power
+PEM file, mode 0600); production needs a key manager or HSM. More
+limits, all by design, all open: (1) torn tail — after a power
 failure the last line may be half-written and load fails on it;
 there is no auto-repair, repair is explicit (truncate the torn final
 line and reload; the surviving chain still verifies, the torn
@@ -189,7 +189,11 @@ entries are lost); (2) no file locking — one writer at a time, two
 processes appending to the same file will interleave and corrupt it;
 (3) root unpublished — nothing outside the file proves the tail, so
 truncating the journal's tail is undetectable until a publication
-destination is chosen (open decision).
+destination is chosen (open decision); (4) Router.handle has no
+terminal event on failure — the A4 exactly-one-terminal-event
+invariant covers agent review only — and the router's local_answer
+journal payload carries confidence but no confidence source (A6
+covers the agent's model_review, not the router path).
 
 The journal file contains raw tasks and answers, including any
 personal data in them: protect it like source data. Owner-only mode

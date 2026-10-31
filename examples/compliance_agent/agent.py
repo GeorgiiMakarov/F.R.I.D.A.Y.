@@ -243,6 +243,13 @@ class ComplianceAgent:
                         "reviewer do next?"
                         % (rule_id, detail, context))
                     result = self.local_model.generate(prompt, budget=512)
+                    if not isinstance(result, (tuple, list)):
+                        # A string of length 3 would unpack into
+                        # characters without this check ("abc" ->
+                        # text="a", confidence="b", source="c").
+                        raise ValueError(
+                            "local model must return a tuple or list, "
+                            "got %s" % type(result).__name__)
                     parts = tuple(result)
                     if len(parts) == 3:
                         text, confidence, source = parts

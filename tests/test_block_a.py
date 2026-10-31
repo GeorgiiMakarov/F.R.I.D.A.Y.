@@ -57,9 +57,21 @@ class TestA1(unittest.TestCase):
             with self.assertRaises(ValueError, msg=url):
                 OpenAICompatibleLocalModel(url, "m")
 
+    def test_allowlist_http_rejected(self):
+        # Allowlisted but plaintext http -> rejected: the prompt
+        # would travel in the clear.
+        with self.assertRaises(ValueError):
+            OpenAICompatibleLocalModel("http://evil.com/v1", "m",
+                                       allow_remote=True,
+                                       allowed_hosts=["evil.com"])
+        # Allowlisted https -> accepted.
+        OpenAICompatibleLocalModel("https://evil.com/v1", "m",
+                                   allow_remote=True,
+                                   allowed_hosts=["evil.com"])
+
     def test_allowlist_exact_match(self):
-        # Enabled + listed -> accepted.
-        OpenAICompatibleLocalModel("http://evil.com/v1", "m",
+        # Enabled + listed + https -> accepted.
+        OpenAICompatibleLocalModel("https://evil.com/v1", "m",
                                    allow_remote=True,
                                    allowed_hosts=["evil.com"])
         # Enabled but not listed -> rejected.
@@ -206,6 +218,27 @@ class TestA6(unittest.TestCase):
         review = report["escalated"][0]["model_review"]
         self.assertEqual(review["source"], "stub")
 
+    def test_string_result_rejected_not_split(self):
+        # A 3-char string must not unpack into characters.
+        class StringModel:
+            def generate(self, prompt, budget=512):
+                return "abc"
+
+        agent = ComplianceAgent(local_model=StringModel())
+        start = len(agent.journal)
+        with self.assertRaises(ValueError):
+            agent.review(DOC_SENSITIVE)
+        self.assertEqual(_terminals(agent, start), ["error"])
+
+    def test_list_result_accepted(self):
+        class ListModel:
+            def generate(self, prompt, budget=512):
+                return ["Ask for a corrected document.", 0.85, "explicit"]
+
+        agent = ComplianceAgent(local_model=ListModel())
+        report = agent.review(DOC_SENSITIVE)
+        review = report["escalated"][0]["model_review"]
+        self.assertEqual(review["source"], "explicit")
 
 
 class _RaisingModel:
